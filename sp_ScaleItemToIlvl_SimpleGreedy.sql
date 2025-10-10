@@ -265,12 +265,12 @@ proc: BEGIN
   END IF;
   SET @ratio_shared := GREATEST(0.0, @ratio_shared);
 
-  SET @S_target_p := @S_cur_p * @ratio_shared;
+  SET @S_target_p_est := @S_cur_p * @ratio_shared;
   SET @S_target_a := @S_cur_a * @ratio_shared;
   SET @S_target_res := @S_cur_res * @ratio_shared;
 
-  SET @delta_p := @S_target_p - @S_cur_p;
-  SET @each_p  := CASE WHEN @k>0 THEN @delta_p / @k ELSE 0 END;
+  SET @S_final_res := @S_cur_res;
+  SET @S_final_a := @S_cur_a;
 
   IF @S_cur_res > 0 THEN
     SET @resist_ratio := GREATEST(0.0, @S_target_res / @S_cur_res);
@@ -300,9 +300,17 @@ proc: BEGIN
            (p_entry, 'resist_update_plan', 'frost',  @res_frost_new,  CONCAT('old=', @res_frost)),
            (p_entry, 'resist_update_plan', 'shadow', @res_shadow_new, CONCAT('old=', @res_shadow)),
            (p_entry, 'resist_update_plan', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane));
+    SET @S_final_res :=
+          POW(GREATEST(0, @res_holy_new   * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_fire_new   * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_nature_new * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_frost_new  * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_shadow_new * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_arcane_new * @W_RESIST), 1.5);
   ELSE
     SET @resist_ratio := 0.0;
     SET @resist_scale := 1.0;
+    SET @S_final_res := 0.0;
   END IF;
 
   IF @scale_auras = 1 THEN
@@ -437,8 +445,10 @@ proc: BEGIN
       LIMIT 1;
 
       SET @candidate_mag := @cur_desired_mag;
-      SET @offset_mag := 0;
       SET @direction_pref := CASE WHEN @aura_direction >= 1 THEN 1 ELSE -1 END;
+      SET @offset_down := 0;
+      SET @offset_up := 1;
+      SET @attempts := 0;
 
       adjust_loop: WHILE 1 DO
         IF NOT EXISTS (
@@ -455,19 +465,21 @@ proc: BEGIN
           LEAVE adjust_loop;
         END IF;
 
-        SET @offset_mag := @offset_mag + 1;
-
         IF @direction_pref >= 1 THEN
-          SET @candidate_mag := @cur_desired_mag + @offset_mag;
+          SET @candidate_mag := @cur_desired_mag + @offset_up;
+          SET @offset_up := @offset_up + 1;
         ELSE
-          IF @cur_desired_mag - @offset_mag >= 0 THEN
-            SET @candidate_mag := @cur_desired_mag - @offset_mag;
+          IF @offset_down < @cur_desired_mag THEN
+            SET @offset_down := @offset_down + 1;
+            SET @candidate_mag := @cur_desired_mag - @offset_down;
           ELSE
-            SET @candidate_mag := @cur_desired_mag + @offset_mag;
+            SET @candidate_mag := @cur_desired_mag + @offset_up;
+            SET @offset_up := @offset_up + 1;
           END IF;
         END IF;
 
-        IF @offset_mag > 5000 THEN
+        SET @attempts := @attempts + 1;
+        IF @attempts > 10000 THEN
           LEAVE adjust_loop;
         END IF;
       END WHILE;
@@ -527,8 +539,31 @@ proc: BEGIN
      AND ac2.magnitude = u.new_magnitude
      AND ac2.spellid <> u.spellid;
 
+    SET @aur_new_ap := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='AP'), 0.0);
+    SET @aur_new_rap := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='RAP'), 0.0);
+    SET @aur_new_sd_all := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='SDALL'), 0.0);
+    SET @aur_new_sd_one := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code LIKE 'SDONE%'), 0.0);
+    SET @aur_new_heal_raw := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='HEAL'), 0.0);
+    SET @aur_new_mp5 := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='MP5'), 0.0);
+    SET @aur_new_hp5 := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='HP5'), 0.0);
+
+    SET @aur_new_heal := CASE WHEN @aur_new_sd_all > 0 AND @aur_new_heal_raw = @aur_new_sd_all THEN 0 ELSE @aur_new_heal_raw END;
+
+    SET @S_final_a :=
+        POW(GREATEST(0, @aur_new_ap     * @W_AP),     1.5)
+      + POW(GREATEST(0, @aur_new_rap    * @W_RAP),    1.5)
+      + POW(GREATEST(0, @aur_new_sd_all * @W_SD_ALL), 1.5)
+      + POW(GREATEST(0, @aur_new_sd_one * @W_SD_ONE), 1.5)
+      + POW(GREATEST(0, @aur_new_heal   * @W_HEAL),   1.5)
+      + POW(GREATEST(0, @aur_new_mp5    * @W_MP5),    1.5)
+      + POW(GREATEST(0, @aur_new_hp5    * @W_HP5),    1.5);
+
     DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
   END IF;
+
+  SET @S_target_p_final := GREATEST(0.0, @S_target_shared - @S_final_res - @S_final_a);
+  SET @delta_p := @S_target_p_final - @S_cur_p;
+  SET @each_p  := CASE WHEN @k>0 THEN @delta_p / @k ELSE 0 END;
 
   /* new primary values */
   DROP TEMPORARY TABLE IF EXISTS tmp_pnew;
