@@ -248,7 +248,9 @@ proc: BEGIN
       spellid INT UNSIGNED NOT NULL,
       effect_index TINYINT NOT NULL,
       aura_code VARCHAR(16) NOT NULL,
+      old_magnitude INT NOT NULL,
       new_magnitude INT NOT NULL,
+      aura_rank INT NOT NULL,
       PRIMARY KEY(spellid, effect_index, aura_code)
     ) ENGINE=Memory;
   END IF;
@@ -282,36 +284,48 @@ proc: BEGIN
     SET @aura_direction := CASE WHEN @aura_scale >= 1 THEN 1 ELSE -1 END;
     SET @prev_aura_code := '';
     SET @prev_aura_mag := 0;
+    SET @aura_rank := 0;
 
-    INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,new_magnitude)
-    SELECT x.spellid,
-           x.effect_index,
-           x.aura_code,
-           (@prev_aura_mag := IF(
-             @prev_aura_code = x.aura_code,
-             IF(
-               @aura_direction >= 1,
-               IF(x.desired_mag <= @prev_aura_mag, @prev_aura_mag + 1, x.desired_mag),
-               IF(x.desired_mag >= @prev_aura_mag, GREATEST(0, @prev_aura_mag - 1), x.desired_mag)
-             ),
-             ((@prev_aura_code := x.aura_code) IS NOT NULL) * 0 + x.desired_mag
-           )) AS new_magnitude
+    INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,old_magnitude,new_magnitude,aura_rank)
+    SELECT z.spellid,
+           z.effect_index,
+           z.aura_code,
+           z.magnitude AS old_magnitude,
+           z.new_magnitude,
+           z.aura_rank
     FROM (
-      SELECT r.spellid,
-             r.effect_index,
-             r.aura_code,
-             r.magnitude,
-             GREATEST(0,
-               CASE
-                 WHEN @S_cur_a = 0 THEN r.magnitude
-                 ELSE ROUND(r.magnitude * @aura_scale)
-               END
-             ) AS desired_mag
-      FROM tmp_item_auras_raw r
-    ) AS x
-    ORDER BY x.aura_code,
-             CASE WHEN @aura_direction >= 1 THEN x.magnitude ELSE -x.magnitude END,
-             x.effect_index;
+      SELECT x.spellid,
+             x.effect_index,
+             x.aura_code,
+             x.magnitude,
+             (@aura_rank := IF(@prev_aura_code = x.aura_code, @aura_rank + 1, 1)) AS aura_rank,
+             (@prev_aura_mag := IF(
+               @prev_aura_code = x.aura_code,
+               IF(
+                 @aura_direction >= 1,
+                 IF(x.desired_mag <= @prev_aura_mag, @prev_aura_mag + 1, x.desired_mag),
+                 IF(x.desired_mag >= @prev_aura_mag, GREATEST(0, @prev_aura_mag - 1), x.desired_mag)
+               ),
+               x.desired_mag
+             )) AS new_magnitude,
+             (@prev_aura_code := x.aura_code) AS assign_prev_code
+      FROM (
+        SELECT r.spellid,
+               r.effect_index,
+               r.aura_code,
+               r.magnitude,
+               GREATEST(0,
+                 CASE
+                   WHEN @S_cur_a = 0 THEN r.magnitude
+                   ELSE ROUND(r.magnitude * @aura_scale)
+                 END
+               ) AS desired_mag
+        FROM tmp_item_auras_raw r
+      ) AS x
+      ORDER BY x.aura_code,
+               CASE WHEN @aura_direction >= 1 THEN x.magnitude ELSE -x.magnitude END,
+               x.effect_index
+    ) AS z;
   END IF;
 
   /* new primary values */
@@ -375,6 +389,13 @@ proc: BEGIN
 
     IF @scale_auras = 1 THEN
       IF EXISTS (SELECT 1 FROM tmp_aura_updates) THEN
+        UPDATE helper.aura_spell_catalog ac
+        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
+        SET ac.magnitude = CASE
+          WHEN @aura_direction >= 1 THEN u.new_magnitude + (1000000 + u.aura_rank)
+          ELSE u.new_magnitude - (1000000 + u.aura_rank)
+        END;
+
         UPDATE helper.aura_spell_catalog ac
         JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
         SET ac.magnitude = u.new_magnitude;
