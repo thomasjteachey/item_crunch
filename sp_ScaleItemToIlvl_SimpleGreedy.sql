@@ -605,22 +605,18 @@ proc: BEGIN
 
     IF @scale_auras = 1 THEN
       IF EXISTS (SELECT 1 FROM tmp_aura_updates) THEN
+        -- use an entry-scoped negative sentinel so staging never collides with real magnitudes
         INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
         SELECT p_entry,
                'aura_shift_stage',
                CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
-               CASE WHEN @aura_direction >= 1 THEN u.new_magnitude + (1000000 + u.aura_rank)
-                    ELSE u.new_magnitude - (1000000 + u.aura_rank)
-               END,
+               -2000000000 + ((p_entry & 1048575) * 128) + u.aura_rank,
                CONCAT('spell=', u.spellid)
         FROM tmp_aura_updates u;
 
         UPDATE helper.aura_spell_catalog ac
         JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
-        SET ac.magnitude = CASE
-          WHEN @aura_direction >= 1 THEN u.new_magnitude + (1000000 + u.aura_rank)
-          ELSE u.new_magnitude - (1000000 + u.aura_rank)
-        END;
+        SET ac.magnitude = -2000000000 + ((p_entry & 1048575) * 128) + u.aura_rank;
 
         INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
         SELECT p_entry,
