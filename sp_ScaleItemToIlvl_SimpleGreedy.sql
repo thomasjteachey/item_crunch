@@ -326,6 +326,46 @@ proc: BEGIN
                CASE WHEN @aura_direction >= 1 THEN x.magnitude ELSE -x.magnitude END,
                x.effect_index
     ) AS z;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry,
+            'aura_scale_plan',
+            'ratio_dir',
+            @aura_scale,
+            CONCAT('ratio=', @aura_ratio, ',dir=', @aura_direction, ',cur=', @S_cur_a, ',tgt=', @S_target_a));
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_plan',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.new_magnitude,
+           CONCAT('spell=', u.spellid, ',effect=', u.effect_index, ',old=', u.old_magnitude)
+    FROM tmp_aura_updates u;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_dup_rank',
+           d.aura_code,
+           d.new_magnitude,
+           CONCAT('rows=', d.cnt)
+    FROM (
+      SELECT aura_code, new_magnitude, COUNT(*) AS cnt
+      FROM tmp_aura_updates
+      GROUP BY aura_code, new_magnitude
+      HAVING COUNT(*) > 1
+    ) AS d;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_conflict',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.new_magnitude,
+           CONCAT('existing_spell=', ac2.spellid)
+    FROM tmp_aura_updates u
+    JOIN helper.aura_spell_catalog ac2
+      ON ac2.aura_code = u.aura_code
+     AND ac2.magnitude = u.new_magnitude
+     AND ac2.spellid <> u.spellid;
   END IF;
 
   /* new primary values */
@@ -389,6 +429,16 @@ proc: BEGIN
 
     IF @scale_auras = 1 THEN
       IF EXISTS (SELECT 1 FROM tmp_aura_updates) THEN
+        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+        SELECT p_entry,
+               'aura_shift_stage',
+               CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+               CASE WHEN @aura_direction >= 1 THEN u.new_magnitude + (1000000 + u.aura_rank)
+                    ELSE u.new_magnitude - (1000000 + u.aura_rank)
+               END,
+               CONCAT('spell=', u.spellid)
+        FROM tmp_aura_updates u;
+
         UPDATE helper.aura_spell_catalog ac
         JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
         SET ac.magnitude = CASE
@@ -396,9 +446,27 @@ proc: BEGIN
           ELSE u.new_magnitude - (1000000 + u.aura_rank)
         END;
 
+        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+        SELECT p_entry,
+               'aura_shifted',
+               CONCAT(ac.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+               ac.magnitude,
+               CONCAT('spell=', ac.spellid)
+        FROM helper.aura_spell_catalog ac
+        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code;
+
         UPDATE helper.aura_spell_catalog ac
         JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
         SET ac.magnitude = u.new_magnitude;
+
+        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+        SELECT p_entry,
+               'aura_final',
+               CONCAT(ac.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+               ac.magnitude,
+               CONCAT('spell=', ac.spellid)
+        FROM helper.aura_spell_catalog ac
+        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code;
 
         UPDATE dbc.spell_lplus s
         JOIN tmp_aura_updates u ON u.spellid = s.ID AND u.effect_index = 1
