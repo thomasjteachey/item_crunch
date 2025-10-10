@@ -279,15 +279,45 @@ proc: BEGIN
       SET @aura_scale := 1.0;
     END IF;
 
+    SET @aura_direction := CASE WHEN @aura_scale >= 1 THEN 1 ELSE -1 END;
+    SET @prev_aura_code := '';
+    SET @prev_aura_mag := 0;
+
     INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,new_magnitude)
-    SELECT r.spellid,
-           r.effect_index,
-           r.aura_code,
-           CASE
-             WHEN @S_cur_a = 0 THEN r.magnitude
-             ELSE GREATEST(0, ROUND(r.magnitude * @aura_scale))
-           END AS new_magnitude
-    FROM tmp_item_auras_raw r;
+    SELECT x.spellid,
+           x.effect_index,
+           x.aura_code,
+           (@prev_aura_mag := IF(@prev_aura_code = x.aura_code,
+                                 CASE
+                                   WHEN @aura_direction >= 1 THEN
+                                     CASE
+                                       WHEN x.desired_mag <= @prev_aura_mag THEN @prev_aura_mag + 1
+                                       ELSE x.desired_mag
+                                     END
+                                   ELSE
+                                     CASE
+                                       WHEN x.desired_mag >= @prev_aura_mag THEN GREATEST(0, @prev_aura_mag - 1)
+                                       ELSE x.desired_mag
+                                     END
+                                 ,
+                                 ((@prev_aura_code := x.aura_code) IS NOT NULL) * 0 + x.desired_mag
+                               )) AS new_magnitude
+    FROM (
+      SELECT r.spellid,
+             r.effect_index,
+             r.aura_code,
+             r.magnitude,
+             GREATEST(0,
+               CASE
+                 WHEN @S_cur_a = 0 THEN r.magnitude
+                 ELSE ROUND(r.magnitude * @aura_scale)
+               END
+             ) AS desired_mag
+      FROM tmp_item_auras_raw r
+    ) AS x
+    ORDER BY x.aura_code,
+             CASE WHEN @aura_direction >= 1 THEN x.magnitude ELSE -x.magnitude END,
+             x.effect_index;
   END IF;
 
   /* new primary values */
