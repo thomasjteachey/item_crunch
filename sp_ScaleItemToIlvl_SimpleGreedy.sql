@@ -249,8 +249,10 @@ proc: BEGIN
       effect_index TINYINT NOT NULL,
       aura_code VARCHAR(16) NOT NULL,
       old_magnitude INT NOT NULL,
+      desired_magnitude INT NOT NULL,
       new_magnitude INT NOT NULL,
       aura_rank INT NOT NULL,
+      processed TINYINT(1) NOT NULL DEFAULT 0,
       PRIMARY KEY(spellid, effect_index, aura_code)
     ) ENGINE=Memory;
   END IF;
@@ -286,12 +288,13 @@ proc: BEGIN
     SET @prev_aura_mag := 0;
     SET @aura_rank := 0;
 
-    INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,old_magnitude,new_magnitude,aura_rank)
+    INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,old_magnitude,desired_magnitude,new_magnitude,aura_rank)
     SELECT z.spellid,
            z.effect_index,
            z.aura_code,
            z.magnitude AS old_magnitude,
-           z.new_magnitude,
+           z.planned_magnitude,
+           z.planned_magnitude,
            z.aura_rank
     FROM (
       SELECT x.spellid,
@@ -305,9 +308,9 @@ proc: BEGIN
                  @aura_direction >= 1,
                  IF(x.desired_mag <= @prev_aura_mag, @prev_aura_mag + 1, x.desired_mag),
                  IF(x.desired_mag >= @prev_aura_mag, GREATEST(0, @prev_aura_mag - 1), x.desired_mag)
-               ),
-               x.desired_mag
-             )) AS new_magnitude,
+                ),
+                x.desired_mag
+              )) AS planned_magnitude,
              (@prev_aura_code := x.aura_code) AS assign_prev_code
       FROM (
         SELECT r.spellid,
@@ -338,13 +341,137 @@ proc: BEGIN
     SELECT p_entry,
            'aura_update_plan',
            CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
-           u.new_magnitude,
+           u.desired_magnitude,
            CONCAT('spell=', u.spellid, ',effect=', u.effect_index, ',old=', u.old_magnitude)
     FROM tmp_aura_updates u;
 
     INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
     SELECT p_entry,
            'aura_update_dup_rank',
+           d.aura_code,
+           d.desired_magnitude,
+           CONCAT('rows=', d.cnt)
+    FROM (
+      SELECT aura_code, desired_magnitude, COUNT(*) AS cnt
+      FROM tmp_aura_updates
+      GROUP BY aura_code, desired_magnitude
+      HAVING COUNT(*) > 1
+    ) AS d;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_conflict_initial',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.desired_magnitude,
+           CONCAT('existing_spell=', ac2.spellid)
+    FROM tmp_aura_updates u
+    JOIN helper.aura_spell_catalog ac2
+      ON ac2.aura_code = u.aura_code
+     AND ac2.magnitude = u.desired_magnitude
+     AND ac2.spellid <> u.spellid;
+
+    CREATE TEMPORARY TABLE tmp_aura_used(
+      aura_code VARCHAR(16) NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(aura_code, magnitude)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_aura_used(aura_code, magnitude)
+    SELECT ac.aura_code,
+           ac.magnitude
+    FROM helper.aura_spell_catalog ac
+    LEFT JOIN tmp_aura_updates u
+      ON u.aura_code = ac.aura_code
+     AND u.spellid = ac.spellid
+    WHERE u.spellid IS NULL;
+
+    SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
+
+    WHILE @pending_aura_rows > 0 DO
+      SELECT u.spellid,
+             u.effect_index,
+             u.aura_code,
+             u.desired_magnitude,
+             u.aura_rank
+        INTO @cur_aura_spell,
+             @cur_aura_effect,
+             @cur_aura_code,
+             @cur_desired_mag,
+             @cur_aura_rank
+      FROM tmp_aura_updates u
+      WHERE u.processed = 0
+      ORDER BY u.aura_code, u.aura_rank
+      LIMIT 1;
+
+      SET @candidate_mag := @cur_desired_mag;
+      SET @offset_mag := 0;
+      SET @direction_pref := CASE WHEN @aura_direction >= 1 THEN 1 ELSE -1 END;
+
+      adjust_loop: WHILE 1 DO
+        IF NOT EXISTS (
+             SELECT 1 FROM tmp_aura_used tu
+              WHERE tu.aura_code = @cur_aura_code
+                AND tu.magnitude = @candidate_mag
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM tmp_aura_updates u2
+              WHERE u2.aura_code = @cur_aura_code
+                AND u2.new_magnitude = @candidate_mag
+                AND u2.processed = 1
+           ) THEN
+          LEAVE adjust_loop;
+        END IF;
+
+        SET @offset_mag := @offset_mag + 1;
+
+        IF @direction_pref >= 1 THEN
+          SET @candidate_mag := @cur_desired_mag + @offset_mag;
+        ELSE
+          IF @cur_desired_mag - @offset_mag >= 0 THEN
+            SET @candidate_mag := @cur_desired_mag - @offset_mag;
+          ELSE
+            SET @candidate_mag := @cur_desired_mag + @offset_mag;
+          END IF;
+        END IF;
+
+        IF @offset_mag > 5000 THEN
+          LEAVE adjust_loop;
+        END IF;
+      END WHILE;
+
+      UPDATE tmp_aura_updates
+      SET new_magnitude = @candidate_mag,
+          processed = 1
+      WHERE spellid = @cur_aura_spell
+        AND effect_index = @cur_aura_effect
+        AND aura_code = @cur_aura_code;
+
+      INSERT IGNORE INTO tmp_aura_used(aura_code, magnitude)
+      VALUES (@cur_aura_code, @candidate_mag);
+
+      SET @pending_aura_rows := @pending_aura_rows - 1;
+    END WHILE;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_adjust',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.new_magnitude,
+           CONCAT('desired=', u.desired_magnitude, ',spell=', u.spellid)
+    FROM tmp_aura_updates u
+    WHERE u.new_magnitude <> u.desired_magnitude;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_plan_final',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.new_magnitude,
+           CONCAT('spell=', u.spellid, ',effect=', u.effect_index, ',old=', u.old_magnitude)
+    FROM tmp_aura_updates u;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_dup_rank_final',
            d.aura_code,
            d.new_magnitude,
            CONCAT('rows=', d.cnt)
@@ -366,6 +493,8 @@ proc: BEGIN
       ON ac2.aura_code = u.aura_code
      AND ac2.magnitude = u.new_magnitude
      AND ac2.spellid <> u.spellid;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
   END IF;
 
   /* new primary values */
