@@ -699,6 +699,52 @@ proc: BEGIN
     DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
   END IF;
 
+  SELECT IFNULL(SUM(POW(GREATEST(0, newv * @W_PRIMARY), 1.5)), 0.0)
+    INTO @S_final_p
+  FROM tmp_pnew;
+
+  SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p;
+
+  INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+  VALUES (p_entry,
+          'shared_scale_plan',
+          'base_scale',
+          @shared_scale,
+          CONCAT('ratio=', @ratio_shared, ',iterations=', @scale_iteration, ',target_S=', @S_target_shared, ',post_loop_S=', @S_after_shared));
+
+  IF ABS(@nudge_scale - 1.0) > 0.0001 THEN
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry,
+            'shared_scale_nudge',
+            'final_scale',
+            @final_scale,
+            CONCAT('nudge_scale=', @nudge_scale, ',final_S=', @S_final_shared, ',target_S=', @S_target_shared));
+  ELSE
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry,
+            'shared_scale_final',
+            'final_scale',
+            @final_scale,
+            CONCAT('final_S=', @S_final_shared, ',target_S=', @S_target_shared));
+  END IF;
+
+  INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+  VALUES (p_entry, 'resist_update_plan', 'holy',   @res_holy_new,   CONCAT('old=', @res_holy)),
+         (p_entry, 'resist_update_plan', 'fire',   @res_fire_new,   CONCAT('old=', @res_fire)),
+         (p_entry, 'resist_update_plan', 'nature', @res_nature_new, CONCAT('old=', @res_nature)),
+         (p_entry, 'resist_update_plan', 'frost',  @res_frost_new,  CONCAT('old=', @res_frost)),
+         (p_entry, 'resist_update_plan', 'shadow', @res_shadow_new, CONCAT('old=', @res_shadow)),
+         (p_entry, 'resist_update_plan', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane));
+
+  IF @scale_auras = 1 THEN
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry,
+            'aura_scale_plan',
+            'base_scale',
+            @aura_scale,
+            CONCAT('plan_S=', @S_final_a, ',target_shared=', @S_target_shared));
+  END IF;
+
   /* stage slots, single JOIN (avoids “reopen table” issues) */
   DROP TEMPORARY TABLE IF EXISTS tmp_slots_cur;
   CREATE TEMPORARY TABLE tmp_slots_cur(slot_no TINYINT PRIMARY KEY, stat_type TINYINT, stat_value INT) ENGINE=Memory;
