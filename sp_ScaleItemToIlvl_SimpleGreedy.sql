@@ -139,6 +139,7 @@ proc: BEGIN
 
   /* ===== Current aura budget ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_spells;
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_candidates;
   DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_raw;
   DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_totals;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_updates;
@@ -161,6 +162,64 @@ proc: BEGIN
     UNION DISTINCT
     SELECT spellid_5 FROM lplusworld.item_template WHERE entry=p_entry AND spelltrigger_5=1 AND spellid_5<>0;
 
+    CREATE TEMPORARY TABLE tmp_item_aura_candidates(
+      spellid INT UNSIGNED NOT NULL,
+      effect_index TINYINT NOT NULL,
+      effect_aura INT NOT NULL,
+      effect_misc INT NOT NULL,
+      aura_code VARCHAR(16) DEFAULT NULL,
+      magnitude INT DEFAULT NULL,
+      PRIMARY KEY(spellid, effect_index)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_item_aura_candidates(spellid,effect_index,effect_aura,effect_misc,aura_code,magnitude)
+    SELECT s.ID AS spellid,
+           slots.effect_index,
+           slots.effect_aura,
+           slots.effect_misc,
+           CASE
+             WHEN slots.effect_aura = @AURA_AP THEN 'AP'
+             WHEN slots.effect_aura = @AURA_RAP THEN 'RAP'
+             WHEN slots.effect_aura = @AURA_SD AND (slots.effect_misc & @MASK_SD_ALL)=@MASK_SD_ALL THEN 'SDALL'
+             WHEN slots.effect_aura = @AURA_SD AND (slots.effect_misc & @MASK_SD_ALL)<>0 THEN CONCAT('SDONE_', LPAD(slots.effect_misc & @MASK_SD_ALL, 3, '0'))
+             WHEN slots.effect_aura IN (@AURA_HEAL1,@AURA_HEAL2) THEN 'HEAL'
+             WHEN slots.effect_aura = @AURA_MP5 AND slots.effect_misc = 0 THEN 'MP5'
+             WHEN slots.effect_aura = @AURA_HP5 THEN 'HP5'
+             ELSE NULL
+           END AS aura_code,
+           CASE
+             WHEN slots.effect_aura = @AURA_AP THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_RAP THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_SD AND (slots.effect_misc & @MASK_SD_ALL)<>0 THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura IN (@AURA_HEAL1,@AURA_HEAL2) THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_MP5 AND slots.effect_misc = 0 THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_HP5 THEN GREATEST(0, slots.base_points + 1)
+             ELSE NULL
+           END AS magnitude
+    FROM tmp_item_spells tis
+    JOIN (
+      SELECT ID,
+             1 AS effect_index,
+             IFNULL(EffectAura_1, 0) AS effect_aura,
+             IFNULL(EffectMiscValue_1, 0) AS effect_misc,
+             IFNULL(EffectBasePoints_1, 0) AS base_points
+      FROM dbc.spell_lplus
+      UNION ALL
+      SELECT ID,
+             2 AS effect_index,
+             IFNULL(EffectAura_2, 0) AS effect_aura,
+             IFNULL(EffectMiscValue_2, 0) AS effect_misc,
+             IFNULL(EffectBasePoints_2, 0) AS base_points
+      FROM dbc.spell_lplus
+      UNION ALL
+      SELECT ID,
+             3 AS effect_index,
+             IFNULL(EffectAura_3, 0) AS effect_aura,
+             IFNULL(EffectMiscValue_3, 0) AS effect_misc,
+             IFNULL(EffectBasePoints_3, 0) AS base_points
+      FROM dbc.spell_lplus
+    ) AS slots ON slots.ID = tis.spellid;
+
     CREATE TEMPORARY TABLE tmp_item_auras_raw(
       spellid INT UNSIGNED NOT NULL,
       aura_code VARCHAR(16) NOT NULL,
@@ -170,88 +229,31 @@ proc: BEGIN
     ) ENGINE=Memory;
 
     INSERT INTO tmp_item_auras_raw(spellid,aura_code,effect_index,magnitude)
-    SELECT DISTINCT q.spellid, q.aura_code, q.effect_index, q.magnitude
-    FROM (
-      SELECT ac.spellid,
-             ac.aura_code,
-             CASE
-               WHEN ac.aura_code='AP' AND s.EffectAura_1=@AURA_AP THEN 1
-               WHEN ac.aura_code='AP' AND s.EffectAura_2=@AURA_AP THEN 2
-               WHEN ac.aura_code='AP' AND s.EffectAura_3=@AURA_AP THEN 3
-
-               WHEN ac.aura_code='RAP' AND s.EffectAura_1=@AURA_RAP THEN 1
-               WHEN ac.aura_code='RAP' AND s.EffectAura_2=@AURA_RAP THEN 2
-               WHEN ac.aura_code='RAP' AND s.EffectAura_3=@AURA_RAP THEN 3
-
-               WHEN ac.aura_code='SDALL' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL THEN 1
-               WHEN ac.aura_code='SDALL' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL THEN 2
-               WHEN ac.aura_code='SDALL' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL THEN 3
-
-               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN 1
-               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN 2
-               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN 3
-
-               WHEN ac.aura_code='HEAL' AND s.EffectAura_1 IN (@AURA_HEAL1,@AURA_HEAL2) THEN 1
-               WHEN ac.aura_code='HEAL' AND s.EffectAura_2 IN (@AURA_HEAL1,@AURA_HEAL2) THEN 2
-               WHEN ac.aura_code='HEAL' AND s.EffectAura_3 IN (@AURA_HEAL1,@AURA_HEAL2) THEN 3
-
-               WHEN ac.aura_code='MP5' AND s.EffectAura_1=@AURA_MP5 AND s.EffectMiscValue_1=0 THEN 1
-               WHEN ac.aura_code='MP5' AND s.EffectAura_2=@AURA_MP5 AND s.EffectMiscValue_2=0 THEN 2
-               WHEN ac.aura_code='MP5' AND s.EffectAura_3=@AURA_MP5 AND s.EffectMiscValue_3=0 THEN 3
-
-               WHEN ac.aura_code='HP5' AND s.EffectAura_1=@AURA_HP5 THEN 1
-               WHEN ac.aura_code='HP5' AND s.EffectAura_2=@AURA_HP5 THEN 2
-               WHEN ac.aura_code='HP5' AND s.EffectAura_3=@AURA_HP5 THEN 3
-               ELSE 0
-             END AS effect_index,
-             CASE
-               WHEN ac.aura_code='AP' AND s.EffectAura_1=@AURA_AP THEN GREATEST(0, s.EffectBasePoints_1 + 1)
-               WHEN ac.aura_code='AP' AND s.EffectAura_2=@AURA_AP THEN GREATEST(0, s.EffectBasePoints_2 + 1)
-               WHEN ac.aura_code='AP' AND s.EffectAura_3=@AURA_AP THEN GREATEST(0, s.EffectBasePoints_3 + 1)
-
-               WHEN ac.aura_code='RAP' AND s.EffectAura_1=@AURA_RAP THEN GREATEST(0, s.EffectBasePoints_1 + 1)
-               WHEN ac.aura_code='RAP' AND s.EffectAura_2=@AURA_RAP THEN GREATEST(0, s.EffectBasePoints_2 + 1)
-               WHEN ac.aura_code='RAP' AND s.EffectAura_3=@AURA_RAP THEN GREATEST(0, s.EffectBasePoints_3 + 1)
-
-               WHEN ac.aura_code='SDALL' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_1 + 1)
-               WHEN ac.aura_code='SDALL' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_2 + 1)
-               WHEN ac.aura_code='SDALL' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_3 + 1)
-
-               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_1 + 1)
-               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_2 + 1)
-               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_3 + 1)
-
-               WHEN ac.aura_code='HEAL' AND s.EffectAura_1 IN (@AURA_HEAL1,@AURA_HEAL2) THEN GREATEST(0, s.EffectBasePoints_1 + 1)
-               WHEN ac.aura_code='HEAL' AND s.EffectAura_2 IN (@AURA_HEAL1,@AURA_HEAL2) THEN GREATEST(0, s.EffectBasePoints_2 + 1)
-               WHEN ac.aura_code='HEAL' AND s.EffectAura_3 IN (@AURA_HEAL1,@AURA_HEAL2) THEN GREATEST(0, s.EffectBasePoints_3 + 1)
-
-               WHEN ac.aura_code='MP5' AND s.EffectAura_1=@AURA_MP5 AND s.EffectMiscValue_1=0 THEN GREATEST(0, s.EffectBasePoints_1 + 1)
-               WHEN ac.aura_code='MP5' AND s.EffectAura_2=@AURA_MP5 AND s.EffectMiscValue_2=0 THEN GREATEST(0, s.EffectBasePoints_2 + 1)
-               WHEN ac.aura_code='MP5' AND s.EffectAura_3=@AURA_MP5 AND s.EffectMiscValue_3=0 THEN GREATEST(0, s.EffectBasePoints_3 + 1)
-
-               WHEN ac.aura_code='HP5' AND s.EffectAura_1=@AURA_HP5 THEN GREATEST(0, s.EffectBasePoints_1 + 1)
-               WHEN ac.aura_code='HP5' AND s.EffectAura_2=@AURA_HP5 THEN GREATEST(0, s.EffectBasePoints_2 + 1)
-               WHEN ac.aura_code='HP5' AND s.EffectAura_3=@AURA_HP5 THEN GREATEST(0, s.EffectBasePoints_3 + 1)
-               ELSE NULL
-             END AS magnitude
-      FROM helper.aura_spell_catalog ac
-      JOIN tmp_item_spells tis ON tis.spellid = ac.spellid
-      JOIN dbc.spell_lplus s ON s.ID = ac.spellid
-      WHERE ac.aura_code IN ('AP','RAP','SDALL','HEAL','MP5','HP5')
-         OR ac.aura_code LIKE 'SDONE%'
-    ) q
-    WHERE q.effect_index BETWEEN 1 AND 3
-      AND q.magnitude IS NOT NULL;
+    SELECT spellid, aura_code, effect_index, magnitude
+    FROM tmp_item_aura_candidates
+    WHERE aura_code IS NOT NULL
+      AND magnitude IS NOT NULL
+      AND magnitude > 0;
 
     SET @item_spell_count := (SELECT COUNT(*) FROM tmp_item_spells);
-    SET @catalog_rows := (
+    SET @aura_candidate_rows := (
       SELECT COUNT(*)
-      FROM helper.aura_spell_catalog ac
-      JOIN tmp_item_spells tis ON tis.spellid = ac.spellid
-      WHERE ac.aura_code IN ('AP','RAP','SDALL','HEAL','MP5','HP5')
-         OR ac.aura_code LIKE 'SDONE%'
+      FROM tmp_item_aura_candidates
+      WHERE aura_code IS NOT NULL
     );
     SET @aura_row_count := (SELECT COUNT(*) FROM tmp_item_auras_raw);
+    SET @zero_mag_rows := (
+      SELECT COUNT(*)
+      FROM tmp_item_aura_candidates
+      WHERE aura_code IS NOT NULL
+        AND IFNULL(magnitude, 0) = 0
+    );
+    SET @unsupported_effects := (
+      SELECT COUNT(*)
+      FROM tmp_item_aura_candidates
+      WHERE aura_code IS NULL
+        AND effect_aura IN (@AURA_AP, @AURA_RAP, @AURA_SD, @AURA_HEAL1, @AURA_HEAL2, @AURA_MP5, @AURA_HP5)
+    );
 
     IF @item_spell_count > 0 THEN
       INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
@@ -260,26 +262,37 @@ proc: BEGIN
         'aura_source_counts',
         'spells',
         @item_spell_count,
-        CONCAT('catalog_rows=', @catalog_rows, ',recognized_rows=', @aura_row_count)
+        CONCAT('candidates=', @aura_candidate_rows, ',recognized_rows=', @aura_row_count, ',zero_rows=', @zero_mag_rows)
       );
 
-      IF @catalog_rows = 0 THEN
-        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-        VALUES (
-          p_entry,
-          'aura_missing_catalog',
-          'spells',
-          @item_spell_count,
-          'item spells not mapped in helper.aura_spell_catalog'
-        );
-      ELSEIF @aura_row_count = 0 THEN
+      IF @aura_candidate_rows = 0 THEN
         INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
         VALUES (
           p_entry,
           'aura_missing_effect',
           'spells',
           @item_spell_count,
-          'mapped spells lack supported AP/RAP/SD/HEAL/MP5/HP5 effects'
+          'item spells have no supported AP/RAP/SD/HEAL/MP5/HP5 effects'
+        );
+      ELSEIF @aura_row_count = 0 THEN
+        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+        VALUES (
+          p_entry,
+          'aura_zero_magnitude',
+          'spells',
+          @item_spell_count,
+          'supported effects resolved to zero magnitude'
+        );
+      END IF;
+
+      IF @unsupported_effects > 0 THEN
+        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+        VALUES (
+          p_entry,
+          'aura_unsupported_effect',
+          'slots',
+          @unsupported_effects,
+          'effect aura matched but mask/misc configuration was unsupported'
         );
       END IF;
     END IF;
@@ -765,6 +778,7 @@ proc: BEGIN
             CONCAT('plan_S=', @S_final_a, ',target_shared=', @S_target_shared));
 
     DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
+    DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_candidates;
   END IF;
 
   /* stage slots, single JOIN (avoids “reopen table” issues) */
@@ -904,12 +918,6 @@ proc: BEGIN
           FROM tmp_aura_spell_clones sc
           LEFT JOIN tmp_aura_updates u ON u.spellid = sc.old_spellid
           GROUP BY sc.old_spellid, sc.new_spellid;
-
-          INSERT INTO helper.aura_spell_catalog(aura_code, magnitude, spellid)
-          SELECT DISTINCT u.aura_code, u.new_magnitude, u.new_spellid
-          FROM tmp_aura_updates u
-          WHERE u.new_spellid IS NOT NULL
-          ON DUPLICATE KEY UPDATE spellid = VALUES(spellid);
 
           UPDATE lplusworld.item_template t
           JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_1
