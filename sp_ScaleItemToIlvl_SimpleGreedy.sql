@@ -38,6 +38,7 @@ proc: BEGIN
   SET @W_SPCRIT  := 2600.0;
   SET @W_MP5     :=  550.0;
   SET @W_HP5     :=  550.0;
+  SET @W_RESIST  :=  230.0;
 
   SET @AURA_AP := 99;    SET @AURA_RAP := 124;
   SET @AURA_HIT := 54;   SET @AURA_SPHIT := 55;
@@ -78,11 +79,13 @@ proc: BEGIN
   SELECT stat_type1,stat_value1, stat_type2,stat_value2, stat_type3,stat_value3,
          stat_type4,stat_value4, stat_type5,stat_value5, stat_type6,stat_value6,
          stat_type7,stat_value7, stat_type8,stat_value8, stat_type9,stat_value9,
-         stat_type10,stat_value10
+         stat_type10,stat_value10,
+         holy_res, fire_res, nature_res, frost_res, shadow_res, arcane_res
   INTO  @st1,@sv1, @st2,@sv2, @st3,@sv3,
         @st4,@sv4, @st5,@sv5, @st6,@sv6,
         @st7,@sv7, @st8,@sv8, @st9,@sv9,
-        @st10,@sv10
+        @st10,@sv10,
+        @res_holy,@res_fire,@res_nature,@res_frost,@res_shadow,@res_arcane
   FROM lplusworld.item_template
   WHERE entry = p_entry;
 
@@ -117,6 +120,30 @@ proc: BEGIN
     INTO @S_cur_p
   FROM tmp_pcur;
 
+  /* resistance budget */
+  SET @res_holy := IFNULL(@res_holy, 0);
+  SET @res_fire := IFNULL(@res_fire, 0);
+  SET @res_nature := IFNULL(@res_nature, 0);
+  SET @res_frost := IFNULL(@res_frost, 0);
+  SET @res_shadow := IFNULL(@res_shadow, 0);
+  SET @res_arcane := IFNULL(@res_arcane, 0);
+
+  SET @S_cur_res :=
+        POW(GREATEST(0, @res_holy   * @W_RESIST), 1.5)
+      + POW(GREATEST(0, @res_fire   * @W_RESIST), 1.5)
+      + POW(GREATEST(0, @res_nature * @W_RESIST), 1.5)
+      + POW(GREATEST(0, @res_frost  * @W_RESIST), 1.5)
+      + POW(GREATEST(0, @res_shadow * @W_RESIST), 1.5)
+      + POW(GREATEST(0, @res_arcane * @W_RESIST), 1.5);
+
+  SET @res_holy_new := @res_holy;
+  SET @res_fire_new := @res_fire;
+  SET @res_nature_new := @res_nature;
+  SET @res_frost_new := @res_frost;
+  SET @res_shadow_new := @res_shadow;
+  SET @res_arcane_new := @res_arcane;
+  SET @resist_scale := 1.0;
+
   /* ===== Current aura budget ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_spells;
   DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_raw;
@@ -126,6 +153,7 @@ proc: BEGIN
   SET @S_cur_a := 0.0;
   SET @aura_ratio := 0.0;
   SET @aura_scale := 1.0;
+  SET @resist_ratio := 0.0;
 
   IF @scale_auras = 1 THEN
     CREATE TEMPORARY TABLE tmp_item_spells(spellid INT UNSIGNED PRIMARY KEY) ENGINE=Memory;
@@ -257,10 +285,10 @@ proc: BEGIN
     ) ENGINE=Memory;
   END IF;
 
-  SET @S_other := @S_cur - @S_cur_p - @S_cur_a;
+  SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res;
   SET @S_target_shared := GREATEST(0.0, @S_tgt - @S_other);
-  IF (@S_cur_p + @S_cur_a) > 0 THEN
-    SET @ratio_shared := @S_target_shared / (@S_cur_p + @S_cur_a);
+  IF (@S_cur_p + @S_cur_a + @S_cur_res) > 0 THEN
+    SET @ratio_shared := @S_target_shared / (@S_cur_p + @S_cur_a + @S_cur_res);
   ELSE
     SET @ratio_shared := 0.0;
   END IF;
@@ -268,9 +296,43 @@ proc: BEGIN
 
   SET @S_target_p := @S_cur_p * @ratio_shared;
   SET @S_target_a := @S_cur_a * @ratio_shared;
+  SET @S_target_res := @S_cur_res * @ratio_shared;
 
   SET @delta_p := @S_target_p - @S_cur_p;
   SET @each_p  := CASE WHEN @k>0 THEN @delta_p / @k ELSE 0 END;
+
+  IF @S_cur_res > 0 THEN
+    SET @resist_ratio := GREATEST(0.0, @S_target_res / @S_cur_res);
+    SET @resist_scale := CASE
+      WHEN @resist_ratio = 0 THEN 0
+      ELSE POW(@resist_ratio, 2.0/3.0)
+    END;
+
+    SET @res_holy_new := LEAST(255, ROUND(GREATEST(0, @res_holy * @resist_scale)));
+    SET @res_fire_new := LEAST(255, ROUND(GREATEST(0, @res_fire * @resist_scale)));
+    SET @res_nature_new := LEAST(255, ROUND(GREATEST(0, @res_nature * @resist_scale)));
+    SET @res_frost_new := LEAST(255, ROUND(GREATEST(0, @res_frost * @resist_scale)));
+    SET @res_shadow_new := LEAST(255, ROUND(GREATEST(0, @res_shadow * @resist_scale)));
+    SET @res_arcane_new := LEAST(255, ROUND(GREATEST(0, @res_arcane * @resist_scale)));
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry,
+            'resist_scale_plan',
+            'ratio',
+            @resist_scale,
+            CONCAT('ratio=', @resist_ratio, ',cur=', @S_cur_res, ',tgt=', @S_target_res));
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry, 'resist_update_plan', 'holy',   @res_holy_new,   CONCAT('old=', @res_holy)),
+           (p_entry, 'resist_update_plan', 'fire',   @res_fire_new,   CONCAT('old=', @res_fire)),
+           (p_entry, 'resist_update_plan', 'nature', @res_nature_new, CONCAT('old=', @res_nature)),
+           (p_entry, 'resist_update_plan', 'frost',  @res_frost_new,  CONCAT('old=', @res_frost)),
+           (p_entry, 'resist_update_plan', 'shadow', @res_shadow_new, CONCAT('old=', @res_shadow)),
+           (p_entry, 'resist_update_plan', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane));
+  ELSE
+    SET @resist_ratio := 0.0;
+    SET @resist_scale := 1.0;
+  END IF;
 
   IF @scale_auras = 1 THEN
     IF @S_cur_a > 0 THEN
@@ -553,8 +615,22 @@ proc: BEGIN
         t.stat_value7  = p.sv7,
         t.stat_value8  = p.sv8,
         t.stat_value9  = p.sv9,
-        t.stat_value10 = p.sv10
+        t.stat_value10 = p.sv10,
+        t.holy_res     = @res_holy_new,
+        t.fire_res     = @res_fire_new,
+        t.nature_res   = @res_nature_new,
+        t.frost_res    = @res_frost_new,
+        t.shadow_res   = @res_shadow_new,
+        t.arcane_res   = @res_arcane_new
     WHERE t.entry = p_entry;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry, 'resist_final', 'holy',   @res_holy_new,   CONCAT('old=', @res_holy)),
+           (p_entry, 'resist_final', 'fire',   @res_fire_new,   CONCAT('old=', @res_fire)),
+           (p_entry, 'resist_final', 'nature', @res_nature_new, CONCAT('old=', @res_nature)),
+           (p_entry, 'resist_final', 'frost',  @res_frost_new,  CONCAT('old=', @res_frost)),
+           (p_entry, 'resist_final', 'shadow', @res_shadow_new, CONCAT('old=', @res_shadow)),
+           (p_entry, 'resist_final', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane));
 
     IF @scale_auras = 1 THEN
       IF EXISTS (SELECT 1 FROM tmp_aura_updates) THEN
