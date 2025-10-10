@@ -173,7 +173,7 @@ proc: BEGIN
     ) ENGINE=Memory;
 
     INSERT INTO tmp_item_aura_candidates(spellid,effect_index,effect_aura,effect_misc,aura_code,magnitude)
-    SELECT s.ID AS spellid,
+    SELECT s.`ID` AS spellid,
            slots.effect_index,
            slots.effect_aura,
            slots.effect_misc,
@@ -198,27 +198,27 @@ proc: BEGIN
            END AS magnitude
     FROM tmp_item_spells tis
     JOIN (
-      SELECT ID,
+      SELECT `ID`,
              1 AS effect_index,
              IFNULL(EffectAura_1, 0) AS effect_aura,
              IFNULL(EffectMiscValue_1, 0) AS effect_misc,
              IFNULL(EffectBasePoints_1, 0) AS base_points
       FROM dbc.spell_lplus
       UNION ALL
-      SELECT ID,
+      SELECT `ID`,
              2 AS effect_index,
              IFNULL(EffectAura_2, 0) AS effect_aura,
              IFNULL(EffectMiscValue_2, 0) AS effect_misc,
              IFNULL(EffectBasePoints_2, 0) AS base_points
       FROM dbc.spell_lplus
       UNION ALL
-      SELECT ID,
+      SELECT `ID`,
              3 AS effect_index,
              IFNULL(EffectAura_3, 0) AS effect_aura,
              IFNULL(EffectMiscValue_3, 0) AS effect_misc,
              IFNULL(EffectBasePoints_3, 0) AS base_points
       FROM dbc.spell_lplus
-    ) AS slots ON slots.ID = tis.spellid;
+    ) AS slots ON slots.`ID` = tis.spellid;
 
     CREATE TEMPORARY TABLE tmp_item_auras_raw(
       spellid INT UNSIGNED NOT NULL,
@@ -885,7 +885,7 @@ proc: BEGIN
           INSERT INTO tmp_spell_clone_rows
           SELECT s.*
           FROM dbc.spell_lplus s
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = s.ID;
+          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = s.`ID`;
 
           UPDATE tmp_spell_clone_rows t
           LEFT JOIN (
@@ -896,13 +896,13 @@ proc: BEGIN
             FROM tmp_aura_updates
             WHERE new_magnitude <> old_magnitude
             GROUP BY spellid
-          ) upd ON upd.spellid = t.ID
+          ) upd ON upd.spellid = t.`ID`
           SET t.EffectBasePoints_1 = CASE WHEN upd.bp1 IS NOT NULL THEN upd.bp1 ELSE t.EffectBasePoints_1 END,
               t.EffectBasePoints_2 = CASE WHEN upd.bp2 IS NOT NULL THEN upd.bp2 ELSE t.EffectBasePoints_2 END,
               t.EffectBasePoints_3 = CASE WHEN upd.bp3 IS NOT NULL THEN upd.bp3 ELSE t.EffectBasePoints_3 END;
 
           UPDATE tmp_spell_clone_rows t
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.ID
+          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.`ID`
           SET t.ID = sc.new_spellid;
 
           INSERT INTO dbc.spell_lplus
