@@ -32,18 +32,11 @@ proc: BEGIN
   SET @W_HEAL    := 100.0;
   SET @W_SD_ALL  := 192.0;
   SET @W_SD_ONE  := 159.0;
-  SET @W_HIT     := 2200.0;
-  SET @W_SPHIT   := 2500.0;
-  SET @W_CRIT    := 3200.0;
-  SET @W_SPCRIT  := 2600.0;
   SET @W_MP5     :=  550.0;
   SET @W_HP5     :=  550.0;
   SET @W_RESIST  :=  230.0;
 
   SET @AURA_AP := 99;    SET @AURA_RAP := 124;
-  SET @AURA_HIT := 54;   SET @AURA_SPHIT := 55;
-  SET @AURA_SPCRIT1 := 57; SET @AURA_SPCRIT2 := 71;
-  SET @AURA_CRIT_MELEE := 308; SET @AURA_CRIT_RANGED := 290; SET @AURA_CRIT_GENERIC := 52;
   SET @AURA_SD := 13;    SET @MASK_SD_ALL := 126;
   SET @AURA_HEAL1 := 115; SET @AURA_HEAL2 := 135;
   SET @AURA_MP5 := 85;   SET @AURA_HP5 := 83;
@@ -191,22 +184,6 @@ proc: BEGIN
                WHEN ac.aura_code='RAP' AND s.EffectAura_2=@AURA_RAP AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
                WHEN ac.aura_code='RAP' AND s.EffectAura_3=@AURA_RAP AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
 
-               WHEN ac.aura_code='HIT' AND s.EffectAura_1=@AURA_HIT AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='HIT' AND s.EffectAura_2=@AURA_HIT AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='HIT' AND s.EffectAura_3=@AURA_HIT AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
-
-               WHEN ac.aura_code='SPHIT' AND s.EffectAura_1=@AURA_SPHIT AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='SPHIT' AND s.EffectAura_2=@AURA_SPHIT AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='SPHIT' AND s.EffectAura_3=@AURA_SPHIT AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
-
-               WHEN ac.aura_code='SPCRIT' AND s.EffectAura_1 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='SPCRIT' AND s.EffectAura_2 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='SPCRIT' AND s.EffectAura_3 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
-
-               WHEN ac.aura_code='CRIT' AND s.EffectAura_1 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='CRIT' AND s.EffectAura_2 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='CRIT' AND s.EffectAura_3 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
-
                WHEN ac.aura_code='SDALL' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
                WHEN ac.aura_code='SDALL' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
                WHEN ac.aura_code='SDALL' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
@@ -232,6 +209,8 @@ proc: BEGIN
       FROM helper.aura_spell_catalog ac
       JOIN tmp_item_spells tis ON tis.spellid = ac.spellid
       JOIN dbc.spell_lplus s ON s.ID = ac.spellid
+      WHERE ac.aura_code IN ('AP','RAP','SDALL','HEAL','MP5','HP5')
+         OR ac.aura_code LIKE 'SDONE%'
     ) q
     WHERE q.effect_index BETWEEN 1 AND 3;
 
@@ -247,10 +226,6 @@ proc: BEGIN
 
     SET @aur_ap     := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='AP'), 0.0);
     SET @aur_rap    := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='RAP'), 0.0);
-    SET @aur_hit    := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='HIT'), 0.0);
-    SET @aur_sphit  := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='SPHIT'), 0.0);
-    SET @aur_spcrit := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='SPCRIT'), 0.0);
-    SET @aur_crit   := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='CRIT'), 0.0);
     SET @aur_sd_all := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='SDALL'), 0.0);
     SET @aur_sd_one := IFNULL((SELECT SUM(total_mag) FROM tmp_item_aura_totals WHERE aura_code LIKE 'SDONE%'), 0.0);
     SET @aur_heal_raw := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='HEAL'), 0.0);
@@ -262,10 +237,6 @@ proc: BEGIN
     SET @S_cur_a :=
         POW(GREATEST(0, @aur_ap     * @W_AP),     1.5)
       + POW(GREATEST(0, @aur_rap    * @W_RAP),    1.5)
-      + POW(GREATEST(0, @aur_hit    * @W_HIT),    1.5)
-      + POW(GREATEST(0, @aur_sphit  * @W_SPHIT),  1.5)
-      + POW(GREATEST(0, @aur_spcrit * @W_SPCRIT), 1.5)
-      + POW(GREATEST(0, @aur_crit   * @W_CRIT),   1.5)
       + POW(GREATEST(0, @aur_sd_all * @W_SD_ALL), 1.5)
       + POW(GREATEST(0, @aur_sd_one * @W_SD_ONE), 1.5)
       + POW(GREATEST(0, @aur_heal   * @W_HEAL),   1.5)
@@ -634,22 +605,18 @@ proc: BEGIN
 
     IF @scale_auras = 1 THEN
       IF EXISTS (SELECT 1 FROM tmp_aura_updates) THEN
+        -- use an entry-scoped negative sentinel so staging never collides with real magnitudes
         INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
         SELECT p_entry,
                'aura_shift_stage',
                CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
-               CASE WHEN @aura_direction >= 1 THEN u.new_magnitude + (1000000 + u.aura_rank)
-                    ELSE u.new_magnitude - (1000000 + u.aura_rank)
-               END,
+               -2000000000 + ((p_entry & 1048575) * 128) + u.aura_rank,
                CONCAT('spell=', u.spellid)
         FROM tmp_aura_updates u;
 
         UPDATE helper.aura_spell_catalog ac
         JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
-        SET ac.magnitude = CASE
-          WHEN @aura_direction >= 1 THEN u.new_magnitude + (1000000 + u.aura_rank)
-          ELSE u.new_magnitude - (1000000 + u.aura_rank)
-        END;
+        SET ac.magnitude = -2000000000 + ((p_entry & 1048575) * 128) + u.aura_rank;
 
         INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
         SELECT p_entry,
