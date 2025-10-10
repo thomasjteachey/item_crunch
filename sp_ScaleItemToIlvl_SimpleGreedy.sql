@@ -871,11 +871,14 @@ proc: BEGIN
           SET @next_spell_id := (SELECT IFNULL(MAX(ID), 0) FROM dbc.spell_lplus);
 
           INSERT INTO tmp_aura_spell_clones(old_spellid,new_spellid)
-          SELECT DISTINCT u.spellid,
+          SELECT d.spellid,
                  (@next_spell_id := @next_spell_id + 1)
-          FROM tmp_aura_updates u
-          WHERE u.new_magnitude <> u.old_magnitude
-          ORDER BY u.spellid;
+          FROM (
+            SELECT DISTINCT u.spellid
+            FROM tmp_aura_updates u
+            WHERE u.new_magnitude <> u.old_magnitude
+          ) AS d
+          ORDER BY d.spellid;
 
           UPDATE tmp_aura_updates u
           JOIN tmp_aura_spell_clones sc ON sc.old_spellid = u.spellid
