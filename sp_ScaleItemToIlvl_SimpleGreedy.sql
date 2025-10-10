@@ -170,48 +170,78 @@ proc: BEGIN
     ) ENGINE=Memory;
 
     INSERT INTO tmp_item_auras_raw(spellid,aura_code,effect_index,magnitude)
-    SELECT q.spellid, q.aura_code, q.effect_index, q.magnitude
+    SELECT DISTINCT q.spellid, q.aura_code, q.effect_index, q.magnitude
     FROM (
       SELECT ac.spellid,
              ac.aura_code,
              CASE
-               WHEN ac.aura_code='AP' AND s.EffectAura_1=@AURA_AP AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='AP' AND s.EffectAura_2=@AURA_AP AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='AP' AND s.EffectAura_3=@AURA_AP AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+               WHEN ac.aura_code='AP' AND s.EffectAura_1=@AURA_AP THEN 1
+               WHEN ac.aura_code='AP' AND s.EffectAura_2=@AURA_AP THEN 2
+               WHEN ac.aura_code='AP' AND s.EffectAura_3=@AURA_AP THEN 3
 
-               WHEN ac.aura_code='RAP' AND s.EffectAura_1=@AURA_RAP AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='RAP' AND s.EffectAura_2=@AURA_RAP AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='RAP' AND s.EffectAura_3=@AURA_RAP AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+               WHEN ac.aura_code='RAP' AND s.EffectAura_1=@AURA_RAP THEN 1
+               WHEN ac.aura_code='RAP' AND s.EffectAura_2=@AURA_RAP THEN 2
+               WHEN ac.aura_code='RAP' AND s.EffectAura_3=@AURA_RAP THEN 3
 
-               WHEN ac.aura_code='SDALL' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='SDALL' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='SDALL' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+               WHEN ac.aura_code='SDALL' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL THEN 1
+               WHEN ac.aura_code='SDALL' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL THEN 2
+               WHEN ac.aura_code='SDALL' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL THEN 3
 
-               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>@MASK_SD_ALL AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>@MASK_SD_ALL AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>@MASK_SD_ALL AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN 1
+               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN 2
+               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN 3
 
-               WHEN ac.aura_code='HEAL' AND s.EffectAura_1 IN (@AURA_HEAL1,@AURA_HEAL2) AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='HEAL' AND s.EffectAura_2 IN (@AURA_HEAL1,@AURA_HEAL2) AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='HEAL' AND s.EffectAura_3 IN (@AURA_HEAL1,@AURA_HEAL2) AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+               WHEN ac.aura_code='HEAL' AND s.EffectAura_1 IN (@AURA_HEAL1,@AURA_HEAL2) THEN 1
+               WHEN ac.aura_code='HEAL' AND s.EffectAura_2 IN (@AURA_HEAL1,@AURA_HEAL2) THEN 2
+               WHEN ac.aura_code='HEAL' AND s.EffectAura_3 IN (@AURA_HEAL1,@AURA_HEAL2) THEN 3
 
-               WHEN ac.aura_code='MP5' AND s.EffectAura_1=@AURA_MP5 AND s.EffectMiscValue_1=0 AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='MP5' AND s.EffectAura_2=@AURA_MP5 AND s.EffectMiscValue_2=0 AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='MP5' AND s.EffectAura_3=@AURA_MP5 AND s.EffectMiscValue_3=0 AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+               WHEN ac.aura_code='MP5' AND s.EffectAura_1=@AURA_MP5 AND s.EffectMiscValue_1=0 THEN 1
+               WHEN ac.aura_code='MP5' AND s.EffectAura_2=@AURA_MP5 AND s.EffectMiscValue_2=0 THEN 2
+               WHEN ac.aura_code='MP5' AND s.EffectAura_3=@AURA_MP5 AND s.EffectMiscValue_3=0 THEN 3
 
-               WHEN ac.aura_code='HP5' AND s.EffectAura_1=@AURA_HP5 AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
-               WHEN ac.aura_code='HP5' AND s.EffectAura_2=@AURA_HP5 AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
-               WHEN ac.aura_code='HP5' AND s.EffectAura_3=@AURA_HP5 AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+               WHEN ac.aura_code='HP5' AND s.EffectAura_1=@AURA_HP5 THEN 1
+               WHEN ac.aura_code='HP5' AND s.EffectAura_2=@AURA_HP5 THEN 2
+               WHEN ac.aura_code='HP5' AND s.EffectAura_3=@AURA_HP5 THEN 3
                ELSE 0
              END AS effect_index,
-             ac.magnitude
+             CASE
+               WHEN ac.aura_code='AP' AND s.EffectAura_1=@AURA_AP THEN GREATEST(0, s.EffectBasePoints_1 + 1)
+               WHEN ac.aura_code='AP' AND s.EffectAura_2=@AURA_AP THEN GREATEST(0, s.EffectBasePoints_2 + 1)
+               WHEN ac.aura_code='AP' AND s.EffectAura_3=@AURA_AP THEN GREATEST(0, s.EffectBasePoints_3 + 1)
+
+               WHEN ac.aura_code='RAP' AND s.EffectAura_1=@AURA_RAP THEN GREATEST(0, s.EffectBasePoints_1 + 1)
+               WHEN ac.aura_code='RAP' AND s.EffectAura_2=@AURA_RAP THEN GREATEST(0, s.EffectBasePoints_2 + 1)
+               WHEN ac.aura_code='RAP' AND s.EffectAura_3=@AURA_RAP THEN GREATEST(0, s.EffectBasePoints_3 + 1)
+
+               WHEN ac.aura_code='SDALL' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_1 + 1)
+               WHEN ac.aura_code='SDALL' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_2 + 1)
+               WHEN ac.aura_code='SDALL' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_3 + 1)
+
+               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_1 + 1)
+               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_2 + 1)
+               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN GREATEST(0, s.EffectBasePoints_3 + 1)
+
+               WHEN ac.aura_code='HEAL' AND s.EffectAura_1 IN (@AURA_HEAL1,@AURA_HEAL2) THEN GREATEST(0, s.EffectBasePoints_1 + 1)
+               WHEN ac.aura_code='HEAL' AND s.EffectAura_2 IN (@AURA_HEAL1,@AURA_HEAL2) THEN GREATEST(0, s.EffectBasePoints_2 + 1)
+               WHEN ac.aura_code='HEAL' AND s.EffectAura_3 IN (@AURA_HEAL1,@AURA_HEAL2) THEN GREATEST(0, s.EffectBasePoints_3 + 1)
+
+               WHEN ac.aura_code='MP5' AND s.EffectAura_1=@AURA_MP5 AND s.EffectMiscValue_1=0 THEN GREATEST(0, s.EffectBasePoints_1 + 1)
+               WHEN ac.aura_code='MP5' AND s.EffectAura_2=@AURA_MP5 AND s.EffectMiscValue_2=0 THEN GREATEST(0, s.EffectBasePoints_2 + 1)
+               WHEN ac.aura_code='MP5' AND s.EffectAura_3=@AURA_MP5 AND s.EffectMiscValue_3=0 THEN GREATEST(0, s.EffectBasePoints_3 + 1)
+
+               WHEN ac.aura_code='HP5' AND s.EffectAura_1=@AURA_HP5 THEN GREATEST(0, s.EffectBasePoints_1 + 1)
+               WHEN ac.aura_code='HP5' AND s.EffectAura_2=@AURA_HP5 THEN GREATEST(0, s.EffectBasePoints_2 + 1)
+               WHEN ac.aura_code='HP5' AND s.EffectAura_3=@AURA_HP5 THEN GREATEST(0, s.EffectBasePoints_3 + 1)
+               ELSE NULL
+             END AS magnitude
       FROM helper.aura_spell_catalog ac
       JOIN tmp_item_spells tis ON tis.spellid = ac.spellid
       JOIN dbc.spell_lplus s ON s.ID = ac.spellid
       WHERE ac.aura_code IN ('AP','RAP','SDALL','HEAL','MP5','HP5')
          OR ac.aura_code LIKE 'SDONE%'
     ) q
-    WHERE q.effect_index BETWEEN 1 AND 3;
+    WHERE q.effect_index BETWEEN 1 AND 3
+      AND q.magnitude IS NOT NULL;
 
     CREATE TEMPORARY TABLE tmp_item_aura_totals(
       aura_code VARCHAR(16) PRIMARY KEY,
@@ -678,18 +708,6 @@ proc: BEGIN
     ) AS d;
 
     INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-    SELECT p_entry,
-           'aura_update_conflict',
-           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
-           u.new_magnitude,
-           CONCAT('existing_spell=', ac2.spellid)
-    FROM tmp_aura_updates u
-    JOIN helper.aura_spell_catalog ac2
-      ON ac2.aura_code = u.aura_code
-     AND ac2.magnitude = u.new_magnitude
-     AND ac2.spellid <> u.spellid;
-
-    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
     VALUES (p_entry,
             'aura_scale_plan',
             'base_scale',
@@ -697,52 +715,6 @@ proc: BEGIN
             CONCAT('plan_S=', @S_final_a, ',target_shared=', @S_target_shared));
 
     DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
-  END IF;
-
-  SELECT IFNULL(SUM(POW(GREATEST(0, newv * @W_PRIMARY), 1.5)), 0.0)
-    INTO @S_final_p
-  FROM tmp_pnew;
-
-  SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p;
-
-  INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-  VALUES (p_entry,
-          'shared_scale_plan',
-          'base_scale',
-          @shared_scale,
-          CONCAT('ratio=', @ratio_shared, ',iterations=', @scale_iteration, ',target_S=', @S_target_shared, ',post_loop_S=', @S_after_shared));
-
-  IF ABS(@nudge_scale - 1.0) > 0.0001 THEN
-    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-    VALUES (p_entry,
-            'shared_scale_nudge',
-            'final_scale',
-            @final_scale,
-            CONCAT('nudge_scale=', @nudge_scale, ',final_S=', @S_final_shared, ',target_S=', @S_target_shared));
-  ELSE
-    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-    VALUES (p_entry,
-            'shared_scale_final',
-            'final_scale',
-            @final_scale,
-            CONCAT('final_S=', @S_final_shared, ',target_S=', @S_target_shared));
-  END IF;
-
-  INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-  VALUES (p_entry, 'resist_update_plan', 'holy',   @res_holy_new,   CONCAT('old=', @res_holy)),
-         (p_entry, 'resist_update_plan', 'fire',   @res_fire_new,   CONCAT('old=', @res_fire)),
-         (p_entry, 'resist_update_plan', 'nature', @res_nature_new, CONCAT('old=', @res_nature)),
-         (p_entry, 'resist_update_plan', 'frost',  @res_frost_new,  CONCAT('old=', @res_frost)),
-         (p_entry, 'resist_update_plan', 'shadow', @res_shadow_new, CONCAT('old=', @res_shadow)),
-         (p_entry, 'resist_update_plan', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane));
-
-  IF @scale_auras = 1 THEN
-    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-    VALUES (p_entry,
-            'aura_scale_plan',
-            'base_scale',
-            @aura_scale,
-            CONCAT('plan_S=', @S_final_a, ',target_shared=', @S_target_shared));
   END IF;
 
   /* stage slots, single JOIN (avoids “reopen table” issues) */
@@ -812,52 +784,21 @@ proc: BEGIN
 
     IF @scale_auras = 1 THEN
       IF EXISTS (SELECT 1 FROM tmp_aura_updates) THEN
-        -- use an entry-scoped high sentinel so staging never collides with real magnitudes
         INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
         SELECT p_entry,
-               'aura_shift_stage',
+               'aura_apply_plan',
                CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
-               2000000000 + ((p_entry & 1048575) * 128) + u.aura_rank,
+               u.new_magnitude,
                CONCAT('spell=', u.spellid)
         FROM tmp_aura_updates u;
 
-        UPDATE helper.aura_spell_catalog ac
-        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
-        SET ac.magnitude = 2000000000 + ((p_entry & 1048575) * 128) + u.aura_rank;
-
         INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
         SELECT p_entry,
-               'aura_shifted',
-               CONCAT(ac.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
-               ac.magnitude,
-               CONCAT('spell=', ac.spellid)
-        FROM helper.aura_spell_catalog ac
-        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code;
-
-        UPDATE helper.aura_spell_catalog ac
-        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
-        SET ac.magnitude = u.new_magnitude;
-
-        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-        SELECT p_entry,
-               'aura_final',
-               CONCAT(ac.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
-               ac.magnitude,
-               CONCAT('spell=', ac.spellid)
-        FROM helper.aura_spell_catalog ac
-        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code;
-
-        UPDATE dbc.spell_lplus s
-        JOIN tmp_aura_updates u ON u.spellid = s.ID AND u.effect_index = 1
-        SET s.EffectBasePoints_1 = GREATEST(-1, CAST(u.new_magnitude AS SIGNED) - 1);
-
-        UPDATE dbc.spell_lplus s
-        JOIN tmp_aura_updates u ON u.spellid = s.ID AND u.effect_index = 2
-        SET s.EffectBasePoints_2 = GREATEST(-1, CAST(u.new_magnitude AS SIGNED) - 1);
-
-        UPDATE dbc.spell_lplus s
-        JOIN tmp_aura_updates u ON u.spellid = s.ID AND u.effect_index = 3
-        SET s.EffectBasePoints_3 = GREATEST(-1, CAST(u.new_magnitude AS SIGNED) - 1);
+               'aura_manual_action_required',
+               CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+               u.new_magnitude,
+               CONCAT('spell=', u.spellid, ',effect=', u.effect_index, ',prepare new spell_lplus INSERT')
+        FROM tmp_aura_updates u;
       END IF;
     END IF;
 
