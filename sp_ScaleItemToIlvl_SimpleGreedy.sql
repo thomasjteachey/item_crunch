@@ -865,27 +865,27 @@ proc: BEGIN
           UPDATE lplusworld.item_template t
           JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_1
           SET t.spellid_1 = sc.new_spellid
-          WHERE t.entry = p_entry AND t.spelltrigger_1 = 1;
+          WHERE t.entry = p_entry;
 
           UPDATE lplusworld.item_template t
           JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_2
           SET t.spellid_2 = sc.new_spellid
-          WHERE t.entry = p_entry AND t.spelltrigger_2 = 1;
+          WHERE t.entry = p_entry;
 
           UPDATE lplusworld.item_template t
           JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_3
           SET t.spellid_3 = sc.new_spellid
-          WHERE t.entry = p_entry AND t.spelltrigger_3 = 1;
+          WHERE t.entry = p_entry;
 
           UPDATE lplusworld.item_template t
           JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_4
           SET t.spellid_4 = sc.new_spellid
-          WHERE t.entry = p_entry AND t.spelltrigger_4 = 1;
+          WHERE t.entry = p_entry;
 
           UPDATE lplusworld.item_template t
           JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_5
           SET t.spellid_5 = sc.new_spellid
-          WHERE t.entry = p_entry AND t.spelltrigger_5 = 1;
+          WHERE t.entry = p_entry;
 
           INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
           SELECT p_entry,
