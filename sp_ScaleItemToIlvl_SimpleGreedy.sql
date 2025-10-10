@@ -142,6 +142,7 @@ proc: BEGIN
   DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_raw;
   DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_totals;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_updates;
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
 
   SET @S_cur_a := 0.0;
   SET @aura_scale := 1.0;
@@ -252,6 +253,12 @@ proc: BEGIN
       processed TINYINT(1) NOT NULL DEFAULT 0,
       PRIMARY KEY(spellid, effect_index, aura_code)
     ) ENGINE=Memory;
+
+    CREATE TEMPORARY TABLE tmp_aura_used(
+      aura_code VARCHAR(16) NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(aura_code, magnitude)
+    ) ENGINE=Memory;
   END IF;
 
   SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res;
@@ -311,6 +318,7 @@ proc: BEGIN
 
     IF @scale_auras = 1 THEN
       DELETE FROM tmp_aura_updates;
+      DELETE FROM tmp_aura_used;
       SET @aura_scale := @shared_scale;
       SET @aura_direction := CASE WHEN @aura_scale >= 1 THEN 1 ELSE -1 END;
       SET @prev_aura_code := '';
