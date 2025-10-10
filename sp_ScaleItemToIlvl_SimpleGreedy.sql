@@ -419,89 +419,234 @@ proc: BEGIN
     SET @shared_scale := @shared_scale * @scale_adjust;
   END LOOP shared_scale_loop;
 
-  SET @resist_scale := @shared_scale;
-  SET @aura_scale := @shared_scale;
+  SET @final_scale := GREATEST(0.0, @shared_scale);
+  SET @scale_iteration_final := 0;
 
-  IF @scale_auras = 1 THEN
-    SELECT ac.aura_code,
-           ac.magnitude
-    FROM helper.aura_spell_catalog ac
-    LEFT JOIN tmp_aura_updates u
-      ON u.aura_code = ac.aura_code
-     AND u.spellid = ac.spellid
-    WHERE u.spellid IS NULL;
+  final_scale_loop: LOOP
+    SET @scale_iteration_final := @scale_iteration_final + 1;
 
-    SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
+    SET @res_holy_new := LEAST(255, ROUND(GREATEST(0, @res_holy * @final_scale)));
+    SET @res_fire_new := LEAST(255, ROUND(GREATEST(0, @res_fire * @final_scale)));
+    SET @res_nature_new := LEAST(255, ROUND(GREATEST(0, @res_nature * @final_scale)));
+    SET @res_frost_new := LEAST(255, ROUND(GREATEST(0, @res_frost * @final_scale)));
+    SET @res_shadow_new := LEAST(255, ROUND(GREATEST(0, @res_shadow * @final_scale)));
+    SET @res_arcane_new := LEAST(255, ROUND(GREATEST(0, @res_arcane * @final_scale)));
 
-    WHILE @pending_aura_rows > 0 DO
-      SELECT u.spellid,
-             u.effect_index,
-             u.aura_code,
-             u.desired_magnitude,
-             u.aura_rank
-        INTO @cur_aura_spell,
-             @cur_aura_effect,
-             @cur_aura_code,
-             @cur_desired_mag,
-             @cur_aura_rank
-      FROM tmp_aura_updates u
-      WHERE u.processed = 0
-      ORDER BY u.aura_code, u.aura_rank
-      LIMIT 1;
+    SET @S_final_res :=
+          POW(GREATEST(0, @res_holy_new   * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_fire_new   * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_nature_new * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_frost_new  * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_shadow_new * @W_RESIST), 1.5)
+        + POW(GREATEST(0, @res_arcane_new * @W_RESIST), 1.5);
 
-      SET @candidate_mag := @cur_desired_mag;
-      SET @direction_pref := CASE WHEN @aura_direction >= 1 THEN 1 ELSE -1 END;
-      SET @offset_down := 0;
-      SET @offset_up := 1;
-      SET @attempts := 0;
+    DROP TEMPORARY TABLE IF EXISTS tmp_pnew;
+    CREATE TEMPORARY TABLE tmp_pnew(stat TINYINT PRIMARY KEY, newv INT) ENGINE=Memory;
+    INSERT INTO tmp_pnew(stat,newv)
+    SELECT stat,
+           ROUND(GREATEST(0.0, v * @final_scale))
+    FROM tmp_pcur;
 
-      adjust_loop: WHILE 1 DO
-        IF NOT EXISTS (
-             SELECT 1 FROM tmp_aura_used tu
-              WHERE tu.aura_code = @cur_aura_code
-                AND tu.magnitude = @candidate_mag
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM tmp_aura_updates u2
-              WHERE u2.aura_code = @cur_aura_code
-                AND u2.new_magnitude = @candidate_mag
-                AND u2.processed = 1
-           ) THEN
-          LEAVE adjust_loop;
-        END IF;
+    SELECT IFNULL(SUM(POW(GREATEST(0, newv * @W_PRIMARY), 1.5)), 0.0)
+      INTO @S_final_p
+    FROM tmp_pnew;
 
-        IF @direction_pref >= 1 THEN
-          SET @candidate_mag := @cur_desired_mag + @offset_up;
-          SET @offset_up := @offset_up + 1;
-        ELSE
-          IF @offset_down < @cur_desired_mag THEN
-            SET @offset_down := @offset_down + 1;
-            SET @candidate_mag := @cur_desired_mag - @offset_down;
-          ELSE
+    IF @scale_auras = 1 THEN
+      DELETE FROM tmp_aura_updates;
+      DELETE FROM tmp_aura_used;
+
+      SET @aura_scale := @final_scale;
+      SET @aura_direction := CASE WHEN @aura_scale >= 1 THEN 1 ELSE -1 END;
+      SET @prev_aura_code := '';
+      SET @prev_aura_mag := 0;
+      SET @aura_rank := 0;
+
+      INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,old_magnitude,desired_magnitude,new_magnitude,aura_rank)
+      SELECT z.spellid,
+             z.effect_index,
+             z.aura_code,
+             z.magnitude AS old_magnitude,
+             z.planned_magnitude,
+             z.planned_magnitude,
+             z.aura_rank
+      FROM (
+        SELECT x.spellid,
+               x.effect_index,
+               x.aura_code,
+               x.magnitude,
+               (@aura_rank := IF(@prev_aura_code = x.aura_code, @aura_rank + 1, 1)) AS aura_rank,
+               (@prev_aura_mag := IF(
+                 @prev_aura_code = x.aura_code,
+                 IF(
+                   @aura_direction >= 1,
+                   IF(x.desired_mag <= @prev_aura_mag, @prev_aura_mag + 1, x.desired_mag),
+                   IF(x.desired_mag >= @prev_aura_mag, GREATEST(0, @prev_aura_mag - 1), x.desired_mag)
+                 ),
+                 x.desired_mag
+               )) AS planned_magnitude,
+               (@prev_aura_code := x.aura_code) AS assign_prev_code
+        FROM (
+          SELECT r.spellid,
+                 r.effect_index,
+                 r.aura_code,
+                 r.magnitude,
+                 GREATEST(0, ROUND(r.magnitude * @aura_scale)) AS desired_mag
+          FROM tmp_item_auras_raw r
+        ) AS x
+        ORDER BY x.aura_code,
+                 CASE WHEN @aura_direction >= 1 THEN x.magnitude ELSE -x.magnitude END,
+                 x.effect_index
+      ) AS z;
+
+      SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
+
+      WHILE @pending_aura_rows > 0 DO
+        SELECT u.spellid,
+               u.effect_index,
+               u.aura_code,
+               u.desired_magnitude,
+               u.aura_rank
+          INTO @cur_aura_spell,
+               @cur_aura_effect,
+               @cur_aura_code,
+               @cur_desired_mag,
+               @cur_aura_rank
+        FROM tmp_aura_updates u
+        WHERE u.processed = 0
+        ORDER BY u.aura_code, u.aura_rank
+        LIMIT 1;
+
+        SET @candidate_mag := @cur_desired_mag;
+        SET @direction_pref := CASE WHEN @aura_direction >= 1 THEN 1 ELSE -1 END;
+        SET @offset_down := 0;
+        SET @offset_up := 1;
+        SET @attempts := 0;
+
+        adjust_loop_final: WHILE 1 DO
+          IF NOT EXISTS (
+               SELECT 1 FROM tmp_aura_used tu
+                WHERE tu.aura_code = @cur_aura_code
+                  AND tu.magnitude = @candidate_mag
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM tmp_aura_updates u2
+                WHERE u2.aura_code = @cur_aura_code
+                  AND u2.new_magnitude = @candidate_mag
+                  AND u2.processed = 1
+             ) THEN
+            LEAVE adjust_loop_final;
+          END IF;
+
+          IF @direction_pref >= 1 THEN
             SET @candidate_mag := @cur_desired_mag + @offset_up;
             SET @offset_up := @offset_up + 1;
+          ELSE
+            IF @offset_down < @cur_desired_mag THEN
+              SET @offset_down := @offset_down + 1;
+              SET @candidate_mag := @cur_desired_mag - @offset_down;
+            ELSE
+              SET @candidate_mag := @cur_desired_mag + @offset_up;
+              SET @offset_up := @offset_up + 1;
+            END IF;
           END IF;
-        END IF;
 
-        SET @attempts := @attempts + 1;
-        IF @attempts > 10000 THEN
-          LEAVE adjust_loop;
-        END IF;
+          SET @attempts := @attempts + 1;
+          IF @attempts > 10000 THEN
+            LEAVE adjust_loop_final;
+          END IF;
+        END WHILE adjust_loop_final;
+
+        UPDATE tmp_aura_updates
+        SET new_magnitude = @candidate_mag,
+            processed = 1
+        WHERE spellid = @cur_aura_spell
+          AND effect_index = @cur_aura_effect
+          AND aura_code = @cur_aura_code;
+
+        INSERT IGNORE INTO tmp_aura_used(aura_code, magnitude)
+        VALUES (@cur_aura_code, @candidate_mag);
+
+        SET @pending_aura_rows := @pending_aura_rows - 1;
       END WHILE;
 
-      UPDATE tmp_aura_updates
-      SET new_magnitude = @candidate_mag,
-          processed = 1
-      WHERE spellid = @cur_aura_spell
-        AND effect_index = @cur_aura_effect
-        AND aura_code = @cur_aura_code;
+      SET @aur_new_ap := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='AP'), 0.0);
+      SET @aur_new_rap := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='RAP'), 0.0);
+      SET @aur_new_sd_all := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='SDALL'), 0.0);
+      SET @aur_new_sd_one := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code LIKE 'SDONE%'), 0.0);
+      SET @aur_new_heal_raw := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='HEAL'), 0.0);
+      SET @aur_new_mp5 := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='MP5'), 0.0);
+      SET @aur_new_hp5 := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='HP5'), 0.0);
 
-      INSERT IGNORE INTO tmp_aura_used(aura_code, magnitude)
-      VALUES (@cur_aura_code, @candidate_mag);
+      SET @aur_new_heal := CASE WHEN @aur_new_sd_all > 0 AND @aur_new_heal_raw = @aur_new_sd_all THEN 0 ELSE @aur_new_heal_raw END;
 
-      SET @pending_aura_rows := @pending_aura_rows - 1;
-    END WHILE;
+      SET @S_final_a :=
+          POW(GREATEST(0, @aur_new_ap     * @W_AP),     1.5)
+        + POW(GREATEST(0, @aur_new_rap    * @W_RAP),    1.5)
+        + POW(GREATEST(0, @aur_new_sd_all * @W_SD_ALL), 1.5)
+        + POW(GREATEST(0, @aur_new_sd_one * @W_SD_ONE), 1.5)
+        + POW(GREATEST(0, @aur_new_heal   * @W_HEAL),   1.5)
+        + POW(GREATEST(0, @aur_new_mp5    * @W_MP5),    1.5)
+        + POW(GREATEST(0, @aur_new_hp5    * @W_HP5),    1.5);
+    ELSE
+      SET @S_final_a := 0.0;
+      SET @aur_new_ap := 0.0;
+      SET @aur_new_rap := 0.0;
+      SET @aur_new_sd_all := 0.0;
+      SET @aur_new_sd_one := 0.0;
+      SET @aur_new_heal := 0.0;
+      SET @aur_new_mp5 := 0.0;
+      SET @aur_new_hp5 := 0.0;
+    END IF;
 
+    SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p;
+
+    SET @ratio_adjust := 1.0;
+    SET @scale_adjust := 1.0;
+
+    IF @S_final_shared = 0 THEN
+      LEAVE final_scale_loop;
+    END IF;
+
+    SET @ratio_adjust := GREATEST(0.0, @S_target_shared / @S_final_shared);
+
+    SET @scale_adjust := CASE
+      WHEN @ratio_adjust = 0 THEN 0
+      ELSE POW(@ratio_adjust, 2.0/3.0)
+    END;
+
+    IF ABS(@scale_adjust - 1.0) <= 0.0001 OR @scale_iteration_final >= 6 THEN
+      LEAVE final_scale_loop;
+    END IF;
+
+    SET @final_scale := GREATEST(0.0, @final_scale * @scale_adjust);
+  END LOOP final_scale_loop;
+
+  SET @resist_scale := @final_scale;
+  SET @aura_scale := CASE WHEN @scale_auras = 1 THEN @final_scale ELSE 1.0 END;
+
+  INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+  VALUES (p_entry,
+          'shared_scale_plan',
+          'base_scale',
+          @shared_scale,
+          CONCAT('ratio=', @ratio_shared, ',iterations=', @scale_iteration, ',target_S=', @S_target_shared, ',post_loop_S=', @S_after_shared));
+
+  INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+  VALUES (p_entry,
+          'shared_scale_final',
+          'final_scale',
+          @final_scale,
+          CONCAT('iterations=', @scale_iteration_final, ',ratio_adjust=', @ratio_adjust, ',final_S=', @S_final_shared, ',target_S=', @S_target_shared));
+
+  INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+  VALUES (p_entry, 'resist_update_plan', 'holy',   @res_holy_new,   CONCAT('old=', @res_holy)),
+         (p_entry, 'resist_update_plan', 'fire',   @res_fire_new,   CONCAT('old=', @res_fire)),
+         (p_entry, 'resist_update_plan', 'nature', @res_nature_new, CONCAT('old=', @res_nature)),
+         (p_entry, 'resist_update_plan', 'frost',  @res_frost_new,  CONCAT('old=', @res_frost)),
+         (p_entry, 'resist_update_plan', 'shadow', @res_shadow_new, CONCAT('old=', @res_shadow)),
+         (p_entry, 'resist_update_plan', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane));
+
+  IF @scale_auras = 1 THEN
     INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
     SELECT p_entry,
            'aura_update_adjust',
@@ -544,66 +689,15 @@ proc: BEGIN
      AND ac2.magnitude = u.new_magnitude
      AND ac2.spellid <> u.spellid;
 
-    SET @aur_new_ap := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='AP'), 0.0);
-    SET @aur_new_rap := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='RAP'), 0.0);
-    SET @aur_new_sd_all := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='SDALL'), 0.0);
-    SET @aur_new_sd_one := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code LIKE 'SDONE%'), 0.0);
-    SET @aur_new_heal_raw := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='HEAL'), 0.0);
-    SET @aur_new_mp5 := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='MP5'), 0.0);
-    SET @aur_new_hp5 := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='HP5'), 0.0);
-
-    SET @aur_new_heal := CASE WHEN @aur_new_sd_all > 0 AND @aur_new_heal_raw = @aur_new_sd_all THEN 0 ELSE @aur_new_heal_raw END;
-
-    SET @S_final_a :=
-        POW(GREATEST(0, @aur_new_ap     * @W_AP),     1.5)
-      + POW(GREATEST(0, @aur_new_rap    * @W_RAP),    1.5)
-      + POW(GREATEST(0, @aur_new_sd_all * @W_SD_ALL), 1.5)
-      + POW(GREATEST(0, @aur_new_sd_one * @W_SD_ONE), 1.5)
-      + POW(GREATEST(0, @aur_new_heal   * @W_HEAL),   1.5)
-      + POW(GREATEST(0, @aur_new_mp5    * @W_MP5),    1.5)
-      + POW(GREATEST(0, @aur_new_hp5    * @W_HP5),    1.5);
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry,
+            'aura_scale_plan',
+            'base_scale',
+            @aura_scale,
+            CONCAT('plan_S=', @S_final_a, ',target_shared=', @S_target_shared));
 
     DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
   END IF;
-
-  SET @S_current_pr := @S_final_res + @S_final_p;
-  SET @target_after_aura := GREATEST(0.0, @S_target_shared - @S_final_a);
-
-  IF @S_current_pr > 0 THEN
-    SET @ratio_nudge := GREATEST(0.0, @target_after_aura / @S_current_pr);
-  ELSE
-    SET @ratio_nudge := 1.0;
-  END IF;
-
-  SET @nudge_scale := CASE
-    WHEN @ratio_nudge = 0 THEN 0
-    ELSE POW(@ratio_nudge, 2.0/3.0)
-  END;
-
-  SET @final_scale := GREATEST(0.0, @shared_scale * @nudge_scale);
-  SET @resist_scale := @final_scale;
-
-  SET @res_holy_new := LEAST(255, ROUND(GREATEST(0, @res_holy * @final_scale)));
-  SET @res_fire_new := LEAST(255, ROUND(GREATEST(0, @res_fire * @final_scale)));
-  SET @res_nature_new := LEAST(255, ROUND(GREATEST(0, @res_nature * @final_scale)));
-  SET @res_frost_new := LEAST(255, ROUND(GREATEST(0, @res_frost * @final_scale)));
-  SET @res_shadow_new := LEAST(255, ROUND(GREATEST(0, @res_shadow * @final_scale)));
-  SET @res_arcane_new := LEAST(255, ROUND(GREATEST(0, @res_arcane * @final_scale)));
-
-  SET @S_final_res :=
-        POW(GREATEST(0, @res_holy_new   * @W_RESIST), 1.5)
-      + POW(GREATEST(0, @res_fire_new   * @W_RESIST), 1.5)
-      + POW(GREATEST(0, @res_nature_new * @W_RESIST), 1.5)
-      + POW(GREATEST(0, @res_frost_new  * @W_RESIST), 1.5)
-      + POW(GREATEST(0, @res_shadow_new * @W_RESIST), 1.5)
-      + POW(GREATEST(0, @res_arcane_new * @W_RESIST), 1.5);
-
-  DROP TEMPORARY TABLE IF EXISTS tmp_pnew;
-  CREATE TEMPORARY TABLE tmp_pnew(stat TINYINT PRIMARY KEY, newv INT) ENGINE=Memory;
-  INSERT INTO tmp_pnew(stat,newv)
-  SELECT stat,
-         ROUND(GREATEST(0.0, v * @final_scale))
-  FROM tmp_pcur;
 
   SELECT IFNULL(SUM(POW(GREATEST(0, newv * @W_PRIMARY), 1.5)), 0.0)
     INTO @S_final_p
