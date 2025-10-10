@@ -1,7 +1,12 @@
-CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_ScaleItemToIlvl_SimpleGreedy`(
+DELIMITER $$
+
+DROP PROCEDURE IF EXISTS `helper`.`sp_ScaleItemToIlvl_SimpleGreedy`$$
+
+CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `helper`.`sp_ScaleItemToIlvl_SimpleGreedy`(
   IN p_entry INT UNSIGNED,
   IN p_target_ilvl INT UNSIGNED,
-  IN p_apply TINYINT(1)        -- 0=dry run, 1=apply changes
+  IN p_apply TINYINT(1),        -- 0=dry run, 1=apply changes
+  IN p_scale_auras TINYINT(1)   -- 0=skip aura scaling, nonzero=scale auras
 )
 proc: BEGIN
   /* slotmods / curves */
@@ -22,6 +27,27 @@ proc: BEGIN
   INSERT INTO tmp_qcurve_g VALUES (2,1.21,-9.8),(3,1.42,-4.2),(4,1.64,11.2);
 
   SET @W_PRIMARY := 230.0;
+  SET @W_AP      := 115.0;
+  SET @W_RAP     :=  92.0;
+  SET @W_HEAL    := 100.0;
+  SET @W_SD_ALL  := 192.0;
+  SET @W_SD_ONE  := 159.0;
+  SET @W_HIT     := 2200.0;
+  SET @W_SPHIT   := 2500.0;
+  SET @W_CRIT    := 3200.0;
+  SET @W_SPCRIT  := 2600.0;
+  SET @W_MP5     :=  550.0;
+  SET @W_HP5     :=  550.0;
+
+  SET @AURA_AP := 99;    SET @AURA_RAP := 124;
+  SET @AURA_HIT := 54;   SET @AURA_SPHIT := 55;
+  SET @AURA_SPCRIT1 := 57; SET @AURA_SPCRIT2 := 71;
+  SET @AURA_CRIT_MELEE := 308; SET @AURA_CRIT_RANGED := 290; SET @AURA_CRIT_GENERIC := 52;
+  SET @AURA_SD := 13;    SET @MASK_SD_ALL := 126;
+  SET @AURA_HEAL1 := 115; SET @AURA_HEAL2 := 135;
+  SET @AURA_MP5 := 85;   SET @AURA_HP5 := 83;
+
+  SET @scale_auras := CASE WHEN IFNULL(p_scale_auras, 1) <> 0 THEN 1 ELSE 0 END;
 
   /* basics */
   SELECT Quality, InventoryType, CAST(IFNULL(trueItemLevel,0) AS SIGNED)
@@ -91,10 +117,385 @@ proc: BEGIN
     INTO @S_cur_p
   FROM tmp_pcur;
 
-  /* delta for primaries */
-  SET @S_fixed := @S_cur - @S_cur_p;
-  SET @delta_p := @S_tgt - (@S_fixed + @S_cur_p);
-  SET @each_p  := @delta_p / @k;
+  /* ===== Current aura budget ===== */
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_spells;
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_raw;
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_totals;
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_updates;
+
+  SET @S_cur_a := 0.0;
+  SET @aura_ratio := 0.0;
+  SET @aura_scale := 1.0;
+
+  IF @scale_auras = 1 THEN
+    CREATE TEMPORARY TABLE tmp_item_spells(spellid INT UNSIGNED PRIMARY KEY) ENGINE=Memory;
+
+    INSERT INTO tmp_item_spells(spellid)
+    SELECT spellid_1 FROM lplusworld.item_template WHERE entry=p_entry AND spelltrigger_1=1 AND spellid_1<>0
+    UNION DISTINCT
+    SELECT spellid_2 FROM lplusworld.item_template WHERE entry=p_entry AND spelltrigger_2=1 AND spellid_2<>0
+    UNION DISTINCT
+    SELECT spellid_3 FROM lplusworld.item_template WHERE entry=p_entry AND spelltrigger_3=1 AND spellid_3<>0
+    UNION DISTINCT
+    SELECT spellid_4 FROM lplusworld.item_template WHERE entry=p_entry AND spelltrigger_4=1 AND spellid_4<>0
+    UNION DISTINCT
+    SELECT spellid_5 FROM lplusworld.item_template WHERE entry=p_entry AND spelltrigger_5=1 AND spellid_5<>0;
+
+    CREATE TEMPORARY TABLE tmp_item_auras_raw(
+      spellid INT UNSIGNED NOT NULL,
+      aura_code VARCHAR(16) NOT NULL,
+      effect_index TINYINT NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(spellid, effect_index, aura_code)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_item_auras_raw(spellid,aura_code,effect_index,magnitude)
+    SELECT q.spellid, q.aura_code, q.effect_index, q.magnitude
+    FROM (
+      SELECT ac.spellid,
+             ac.aura_code,
+             CASE
+               WHEN ac.aura_code='AP' AND s.EffectAura_1=@AURA_AP AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='AP' AND s.EffectAura_2=@AURA_AP AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='AP' AND s.EffectAura_3=@AURA_AP AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code='RAP' AND s.EffectAura_1=@AURA_RAP AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='RAP' AND s.EffectAura_2=@AURA_RAP AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='RAP' AND s.EffectAura_3=@AURA_RAP AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code='HIT' AND s.EffectAura_1=@AURA_HIT AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='HIT' AND s.EffectAura_2=@AURA_HIT AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='HIT' AND s.EffectAura_3=@AURA_HIT AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code='SPHIT' AND s.EffectAura_1=@AURA_SPHIT AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='SPHIT' AND s.EffectAura_2=@AURA_SPHIT AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='SPHIT' AND s.EffectAura_3=@AURA_SPHIT AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code='SPCRIT' AND s.EffectAura_1 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='SPCRIT' AND s.EffectAura_2 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='SPCRIT' AND s.EffectAura_3 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code='CRIT' AND s.EffectAura_1 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='CRIT' AND s.EffectAura_2 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='CRIT' AND s.EffectAura_3 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code='SDALL' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='SDALL' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='SDALL' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>@MASK_SD_ALL AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>@MASK_SD_ALL AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code LIKE 'SDONE%' AND s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>@MASK_SD_ALL AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code='HEAL' AND s.EffectAura_1 IN (@AURA_HEAL1,@AURA_HEAL2) AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='HEAL' AND s.EffectAura_2 IN (@AURA_HEAL1,@AURA_HEAL2) AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='HEAL' AND s.EffectAura_3 IN (@AURA_HEAL1,@AURA_HEAL2) AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code='MP5' AND s.EffectAura_1=@AURA_MP5 AND s.EffectMiscValue_1=0 AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='MP5' AND s.EffectAura_2=@AURA_MP5 AND s.EffectMiscValue_2=0 AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='MP5' AND s.EffectAura_3=@AURA_MP5 AND s.EffectMiscValue_3=0 AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+
+               WHEN ac.aura_code='HP5' AND s.EffectAura_1=@AURA_HP5 AND s.EffectBasePoints_1+1=ac.magnitude THEN 1
+               WHEN ac.aura_code='HP5' AND s.EffectAura_2=@AURA_HP5 AND s.EffectBasePoints_2+1=ac.magnitude THEN 2
+               WHEN ac.aura_code='HP5' AND s.EffectAura_3=@AURA_HP5 AND s.EffectBasePoints_3+1=ac.magnitude THEN 3
+               ELSE 0
+             END AS effect_index,
+             ac.magnitude
+      FROM helper.aura_spell_catalog ac
+      JOIN tmp_item_spells tis ON tis.spellid = ac.spellid
+      JOIN dbc.spell_lplus s ON s.ID = ac.spellid
+    ) q
+    WHERE q.effect_index BETWEEN 1 AND 3;
+
+    CREATE TEMPORARY TABLE tmp_item_aura_totals(
+      aura_code VARCHAR(16) PRIMARY KEY,
+      total_mag DOUBLE NOT NULL
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_item_aura_totals(aura_code,total_mag)
+    SELECT aura_code, SUM(magnitude)
+    FROM tmp_item_auras_raw
+    GROUP BY aura_code;
+
+    SET @aur_ap     := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='AP'), 0.0);
+    SET @aur_rap    := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='RAP'), 0.0);
+    SET @aur_hit    := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='HIT'), 0.0);
+    SET @aur_sphit  := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='SPHIT'), 0.0);
+    SET @aur_spcrit := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='SPCRIT'), 0.0);
+    SET @aur_crit   := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='CRIT'), 0.0);
+    SET @aur_sd_all := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='SDALL'), 0.0);
+    SET @aur_sd_one := IFNULL((SELECT SUM(total_mag) FROM tmp_item_aura_totals WHERE aura_code LIKE 'SDONE%'), 0.0);
+    SET @aur_heal_raw := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='HEAL'), 0.0);
+    SET @aur_mp5    := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='MP5'), 0.0);
+    SET @aur_hp5    := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='HP5'), 0.0);
+
+    SET @aur_heal := CASE WHEN @aur_sd_all > 0 AND @aur_heal_raw = @aur_sd_all THEN 0 ELSE @aur_heal_raw END;
+
+    SET @S_cur_a :=
+        POW(GREATEST(0, @aur_ap     * @W_AP),     1.5)
+      + POW(GREATEST(0, @aur_rap    * @W_RAP),    1.5)
+      + POW(GREATEST(0, @aur_hit    * @W_HIT),    1.5)
+      + POW(GREATEST(0, @aur_sphit  * @W_SPHIT),  1.5)
+      + POW(GREATEST(0, @aur_spcrit * @W_SPCRIT), 1.5)
+      + POW(GREATEST(0, @aur_crit   * @W_CRIT),   1.5)
+      + POW(GREATEST(0, @aur_sd_all * @W_SD_ALL), 1.5)
+      + POW(GREATEST(0, @aur_sd_one * @W_SD_ONE), 1.5)
+      + POW(GREATEST(0, @aur_heal   * @W_HEAL),   1.5)
+      + POW(GREATEST(0, @aur_mp5    * @W_MP5),    1.5)
+      + POW(GREATEST(0, @aur_hp5    * @W_HP5),    1.5);
+
+    CREATE TEMPORARY TABLE tmp_aura_updates(
+      spellid INT UNSIGNED NOT NULL,
+      effect_index TINYINT NOT NULL,
+      aura_code VARCHAR(16) NOT NULL,
+      old_magnitude INT NOT NULL,
+      desired_magnitude INT NOT NULL,
+      new_magnitude INT NOT NULL,
+      aura_rank INT NOT NULL,
+      processed TINYINT(1) NOT NULL DEFAULT 0,
+      PRIMARY KEY(spellid, effect_index, aura_code)
+    ) ENGINE=Memory;
+  END IF;
+
+  SET @S_other := @S_cur - @S_cur_p - @S_cur_a;
+  SET @S_target_shared := GREATEST(0.0, @S_tgt - @S_other);
+  IF (@S_cur_p + @S_cur_a) > 0 THEN
+    SET @ratio_shared := @S_target_shared / (@S_cur_p + @S_cur_a);
+  ELSE
+    SET @ratio_shared := 0.0;
+  END IF;
+  SET @ratio_shared := GREATEST(0.0, @ratio_shared);
+
+  SET @S_target_p := @S_cur_p * @ratio_shared;
+  SET @S_target_a := @S_cur_a * @ratio_shared;
+
+  SET @delta_p := @S_target_p - @S_cur_p;
+  SET @each_p  := CASE WHEN @k>0 THEN @delta_p / @k ELSE 0 END;
+
+  IF @scale_auras = 1 THEN
+    IF @S_cur_a > 0 THEN
+      SET @aura_ratio := GREATEST(0.0, @S_target_a / @S_cur_a);
+      SET @aura_scale := CASE
+        WHEN @aura_ratio = 0 THEN 0
+        ELSE POW(@aura_ratio, 2.0/3.0)
+      END;
+    ELSE
+      SET @aura_scale := 1.0;
+    END IF;
+
+    SET @aura_direction := CASE WHEN @aura_scale >= 1 THEN 1 ELSE -1 END;
+    SET @prev_aura_code := '';
+    SET @prev_aura_mag := 0;
+    SET @aura_rank := 0;
+
+    INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,old_magnitude,desired_magnitude,new_magnitude,aura_rank)
+    SELECT z.spellid,
+           z.effect_index,
+           z.aura_code,
+           z.magnitude AS old_magnitude,
+           z.planned_magnitude,
+           z.planned_magnitude,
+           z.aura_rank
+    FROM (
+      SELECT x.spellid,
+             x.effect_index,
+             x.aura_code,
+             x.magnitude,
+             (@aura_rank := IF(@prev_aura_code = x.aura_code, @aura_rank + 1, 1)) AS aura_rank,
+             (@prev_aura_mag := IF(
+               @prev_aura_code = x.aura_code,
+               IF(
+                 @aura_direction >= 1,
+                 IF(x.desired_mag <= @prev_aura_mag, @prev_aura_mag + 1, x.desired_mag),
+                 IF(x.desired_mag >= @prev_aura_mag, GREATEST(0, @prev_aura_mag - 1), x.desired_mag)
+                ),
+                x.desired_mag
+              )) AS planned_magnitude,
+             (@prev_aura_code := x.aura_code) AS assign_prev_code
+      FROM (
+        SELECT r.spellid,
+               r.effect_index,
+               r.aura_code,
+               r.magnitude,
+               GREATEST(0,
+                 CASE
+                   WHEN @S_cur_a = 0 THEN r.magnitude
+                   ELSE ROUND(r.magnitude * @aura_scale)
+                 END
+               ) AS desired_mag
+        FROM tmp_item_auras_raw r
+      ) AS x
+      ORDER BY x.aura_code,
+               CASE WHEN @aura_direction >= 1 THEN x.magnitude ELSE -x.magnitude END,
+               x.effect_index
+    ) AS z;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry,
+            'aura_scale_plan',
+            'ratio_dir',
+            @aura_scale,
+            CONCAT('ratio=', @aura_ratio, ',dir=', @aura_direction, ',cur=', @S_cur_a, ',tgt=', @S_target_a));
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_plan',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.desired_magnitude,
+           CONCAT('spell=', u.spellid, ',effect=', u.effect_index, ',old=', u.old_magnitude)
+    FROM tmp_aura_updates u;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_dup_rank',
+           d.aura_code,
+           d.desired_magnitude,
+           CONCAT('rows=', d.cnt)
+    FROM (
+      SELECT aura_code, desired_magnitude, COUNT(*) AS cnt
+      FROM tmp_aura_updates
+      GROUP BY aura_code, desired_magnitude
+      HAVING COUNT(*) > 1
+    ) AS d;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_conflict_initial',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.desired_magnitude,
+           CONCAT('existing_spell=', ac2.spellid)
+    FROM tmp_aura_updates u
+    JOIN helper.aura_spell_catalog ac2
+      ON ac2.aura_code = u.aura_code
+     AND ac2.magnitude = u.desired_magnitude
+     AND ac2.spellid <> u.spellid;
+
+    CREATE TEMPORARY TABLE tmp_aura_used(
+      aura_code VARCHAR(16) NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(aura_code, magnitude)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_aura_used(aura_code, magnitude)
+    SELECT ac.aura_code,
+           ac.magnitude
+    FROM helper.aura_spell_catalog ac
+    LEFT JOIN tmp_aura_updates u
+      ON u.aura_code = ac.aura_code
+     AND u.spellid = ac.spellid
+    WHERE u.spellid IS NULL;
+
+    SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
+
+    WHILE @pending_aura_rows > 0 DO
+      SELECT u.spellid,
+             u.effect_index,
+             u.aura_code,
+             u.desired_magnitude,
+             u.aura_rank
+        INTO @cur_aura_spell,
+             @cur_aura_effect,
+             @cur_aura_code,
+             @cur_desired_mag,
+             @cur_aura_rank
+      FROM tmp_aura_updates u
+      WHERE u.processed = 0
+      ORDER BY u.aura_code, u.aura_rank
+      LIMIT 1;
+
+      SET @candidate_mag := @cur_desired_mag;
+      SET @offset_mag := 0;
+      SET @direction_pref := CASE WHEN @aura_direction >= 1 THEN 1 ELSE -1 END;
+
+      adjust_loop: WHILE 1 DO
+        IF NOT EXISTS (
+             SELECT 1 FROM tmp_aura_used tu
+              WHERE tu.aura_code = @cur_aura_code
+                AND tu.magnitude = @candidate_mag
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM tmp_aura_updates u2
+              WHERE u2.aura_code = @cur_aura_code
+                AND u2.new_magnitude = @candidate_mag
+                AND u2.processed = 1
+           ) THEN
+          LEAVE adjust_loop;
+        END IF;
+
+        SET @offset_mag := @offset_mag + 1;
+
+        IF @direction_pref >= 1 THEN
+          SET @candidate_mag := @cur_desired_mag + @offset_mag;
+        ELSE
+          IF @cur_desired_mag - @offset_mag >= 0 THEN
+            SET @candidate_mag := @cur_desired_mag - @offset_mag;
+          ELSE
+            SET @candidate_mag := @cur_desired_mag + @offset_mag;
+          END IF;
+        END IF;
+
+        IF @offset_mag > 5000 THEN
+          LEAVE adjust_loop;
+        END IF;
+      END WHILE;
+
+      UPDATE tmp_aura_updates
+      SET new_magnitude = @candidate_mag,
+          processed = 1
+      WHERE spellid = @cur_aura_spell
+        AND effect_index = @cur_aura_effect
+        AND aura_code = @cur_aura_code;
+
+      INSERT IGNORE INTO tmp_aura_used(aura_code, magnitude)
+      VALUES (@cur_aura_code, @candidate_mag);
+
+      SET @pending_aura_rows := @pending_aura_rows - 1;
+    END WHILE;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_adjust',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.new_magnitude,
+           CONCAT('desired=', u.desired_magnitude, ',spell=', u.spellid)
+    FROM tmp_aura_updates u
+    WHERE u.new_magnitude <> u.desired_magnitude;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_plan_final',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.new_magnitude,
+           CONCAT('spell=', u.spellid, ',effect=', u.effect_index, ',old=', u.old_magnitude)
+    FROM tmp_aura_updates u;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_dup_rank_final',
+           d.aura_code,
+           d.new_magnitude,
+           CONCAT('rows=', d.cnt)
+    FROM (
+      SELECT aura_code, new_magnitude, COUNT(*) AS cnt
+      FROM tmp_aura_updates
+      GROUP BY aura_code, new_magnitude
+      HAVING COUNT(*) > 1
+    ) AS d;
+
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    SELECT p_entry,
+           'aura_update_conflict',
+           CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+           u.new_magnitude,
+           CONCAT('existing_spell=', ac2.spellid)
+    FROM tmp_aura_updates u
+    JOIN helper.aura_spell_catalog ac2
+      ON ac2.aura_code = u.aura_code
+     AND ac2.magnitude = u.new_magnitude
+     AND ac2.spellid <> u.spellid;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
+  END IF;
 
   /* new primary values */
   DROP TEMPORARY TABLE IF EXISTS tmp_pnew;
@@ -155,6 +556,61 @@ proc: BEGIN
         t.stat_value10 = p.sv10
     WHERE t.entry = p_entry;
 
+    IF @scale_auras = 1 THEN
+      IF EXISTS (SELECT 1 FROM tmp_aura_updates) THEN
+        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+        SELECT p_entry,
+               'aura_shift_stage',
+               CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+               CASE WHEN @aura_direction >= 1 THEN u.new_magnitude + (1000000 + u.aura_rank)
+                    ELSE u.new_magnitude - (1000000 + u.aura_rank)
+               END,
+               CONCAT('spell=', u.spellid)
+        FROM tmp_aura_updates u;
+
+        UPDATE helper.aura_spell_catalog ac
+        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
+        SET ac.magnitude = CASE
+          WHEN @aura_direction >= 1 THEN u.new_magnitude + (1000000 + u.aura_rank)
+          ELSE u.new_magnitude - (1000000 + u.aura_rank)
+        END;
+
+        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+        SELECT p_entry,
+               'aura_shifted',
+               CONCAT(ac.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+               ac.magnitude,
+               CONCAT('spell=', ac.spellid)
+        FROM helper.aura_spell_catalog ac
+        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code;
+
+        UPDATE helper.aura_spell_catalog ac
+        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code
+        SET ac.magnitude = u.new_magnitude;
+
+        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+        SELECT p_entry,
+               'aura_final',
+               CONCAT(ac.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+               ac.magnitude,
+               CONCAT('spell=', ac.spellid)
+        FROM helper.aura_spell_catalog ac
+        JOIN tmp_aura_updates u ON u.spellid = ac.spellid AND ac.aura_code = u.aura_code;
+
+        UPDATE dbc.spell_lplus s
+        JOIN tmp_aura_updates u ON u.spellid = s.ID AND u.effect_index = 1
+        SET s.EffectBasePoints_1 = GREATEST(-1, CAST(u.new_magnitude AS SIGNED) - 1);
+
+        UPDATE dbc.spell_lplus s
+        JOIN tmp_aura_updates u ON u.spellid = s.ID AND u.effect_index = 2
+        SET s.EffectBasePoints_2 = GREATEST(-1, CAST(u.new_magnitude AS SIGNED) - 1);
+
+        UPDATE dbc.spell_lplus s
+        JOIN tmp_aura_updates u ON u.spellid = s.ID AND u.effect_index = 3
+        SET s.EffectBasePoints_3 = GREATEST(-1, CAST(u.new_magnitude AS SIGNED) - 1);
+      END IF;
+    END IF;
+
     CALL helper.sp_EstimateItemLevels();
   END IF;
 
@@ -162,4 +618,6 @@ proc: BEGIN
          @ilvl_cur AS ilvl_before,
          p_target_ilvl AS target_ilvl,
          (SELECT CAST(trueItemLevel AS SIGNED) FROM lplusworld.item_template WHERE entry=p_entry) AS ilvl_after;
-END proc
+END proc$$
+
+DELIMITER ;
