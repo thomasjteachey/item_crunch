@@ -173,13 +173,14 @@ proc: BEGIN
     ) ENGINE=Memory;
 
     INSERT INTO tmp_item_aura_candidates(spellid,effect_index,effect_aura,effect_misc,aura_code,magnitude)
-    SELECT s.`ID` AS spellid,
+    SELECT slots.`ID` AS spellid,
            slots.effect_index,
            slots.effect_aura,
            slots.effect_misc,
            CASE
              WHEN slots.effect_aura = @AURA_AP THEN 'AP'
              WHEN slots.effect_aura = @AURA_RAP THEN 'RAP'
+             WHEN slots.effect_aura = @AURA_SD AND slots.effect_misc = 0 THEN 'SDALL'
              WHEN slots.effect_aura = @AURA_SD AND (slots.effect_misc & @MASK_SD_ALL)=@MASK_SD_ALL THEN 'SDALL'
              WHEN slots.effect_aura = @AURA_SD AND (slots.effect_misc & @MASK_SD_ALL)<>0 THEN CONCAT('SDONE_', LPAD(slots.effect_misc & @MASK_SD_ALL, 3, '0'))
              WHEN slots.effect_aura IN (@AURA_HEAL1,@AURA_HEAL2) THEN 'HEAL'
@@ -190,6 +191,7 @@ proc: BEGIN
            CASE
              WHEN slots.effect_aura = @AURA_AP THEN GREATEST(0, slots.base_points + 1)
              WHEN slots.effect_aura = @AURA_RAP THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_SD AND slots.effect_misc = 0 THEN GREATEST(0, slots.base_points + 1)
              WHEN slots.effect_aura = @AURA_SD AND (slots.effect_misc & @MASK_SD_ALL)<>0 THEN GREATEST(0, slots.base_points + 1)
              WHEN slots.effect_aura IN (@AURA_HEAL1,@AURA_HEAL2) THEN GREATEST(0, slots.base_points + 1)
              WHEN slots.effect_aura = @AURA_MP5 AND slots.effect_misc = 0 THEN GREATEST(0, slots.base_points + 1)

@@ -3,7 +3,7 @@ avoid these errors when adjusting procs:
 - sp_ScaleItemToIlvl_SimpleGreedy(entry, target_ilvl, apply, scale_auras)
 - primary stats, resistances, and (optionally) auras (excluding hit/crit percentages) start from the same shared scale factor so everything shrinks or grows together before rounding
   - hit/crit percentages stay fixed; the remaining stats shift around them so the recomputed item level still hits the requested target
-- aura scaling inspects triggered item spells in dbc.spell_lplus directly and only adjusts AP/RAP/SD/HEAL/MP5/HP5 effects it can detect in those rows; when nothing matches, the green-text auras stay fixed and the primary stats must absorb the adjustment.
+- aura scaling inspects triggered item spells in dbc.spell_lplus directly and only adjusts AP/RAP/SD/HEAL/MP5/HP5 effects it can detect in those rows; spell damage entries with an empty school mask now count as "all schools" so they shrink alongside other stats. When nothing matches, the green-text auras stay fixed and the primary stats must absorb the adjustment.
   - ilvl_debug_log now records aura_source_counts, aura_missing_effect, aura_zero_magnitude, and aura_unsupported_effect rows so you can confirm why auras were left untouched.
 - shared_budget_current entries in ilvl_debug_log report the current primaries/auras/resistances budget before scaling, making it obvious when the aura slice is zero.
 - after resolving aura conflicts, primaries and resistances receive a shared nudge so the recomputed item level hits the request without skewing the aura mix
