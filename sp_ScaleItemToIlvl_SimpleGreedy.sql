@@ -287,21 +287,15 @@ proc: BEGIN
     SELECT x.spellid,
            x.effect_index,
            x.aura_code,
-           (@prev_aura_mag := IF(@prev_aura_code = x.aura_code,
-                                 CASE
-                                   WHEN @aura_direction >= 1 THEN
-                                     CASE
-                                       WHEN x.desired_mag <= @prev_aura_mag THEN @prev_aura_mag + 1
-                                       ELSE x.desired_mag
-                                     END
-                                   ELSE
-                                     CASE
-                                       WHEN x.desired_mag >= @prev_aura_mag THEN GREATEST(0, @prev_aura_mag - 1)
-                                       ELSE x.desired_mag
-                                     END
-                                 ,
-                                 ((@prev_aura_code := x.aura_code) IS NOT NULL) * 0 + x.desired_mag
-                               )) AS new_magnitude
+           (@prev_aura_mag := IF(
+             @prev_aura_code = x.aura_code,
+             IF(
+               @aura_direction >= 1,
+               IF(x.desired_mag <= @prev_aura_mag, @prev_aura_mag + 1, x.desired_mag),
+               IF(x.desired_mag >= @prev_aura_mag, GREATEST(0, @prev_aura_mag - 1), x.desired_mag)
+             ),
+             ((@prev_aura_code := x.aura_code) IS NOT NULL) * 0 + x.desired_mag
+           )) AS new_magnitude
     FROM (
       SELECT r.spellid,
              r.effect_index,
