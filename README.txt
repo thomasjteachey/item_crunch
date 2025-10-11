@@ -8,6 +8,7 @@ avoid these errors when adjusting procs:
 - shared_budget_current entries in ilvl_debug_log report the current primaries/auras/resistances budget before scaling, making it obvious when the aura slice is zero.
 - after resolving aura conflicts, primaries and resistances receive a shared nudge so the recomputed item level hits the request without skewing the aura mix
 
+- before cloning anything, the scaler now checks dbc.spell_lplus for existing spells that already provide the requested aura magnitudes and reuses them when an exact match exists, only cloning when no reusable spell is available.
 - the scaler clones triggered aura spells by inserting new rows into dbc.spell_lplus (without touching helper.aura_spell_catalog) so scaled magnitudes apply automatically while leaving existing rows untouched.
 - cloned spell ids are written back to the item_template spell slots so the item references the fresh dbc.spell_lplus entries.
 

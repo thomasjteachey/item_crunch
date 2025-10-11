@@ -144,6 +144,7 @@ proc: BEGIN
   DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_totals;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_updates;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_library;
 
   SET @S_cur_a := 0.0;
   SET @aura_scale := 1.0;
@@ -226,16 +227,88 @@ proc: BEGIN
       spellid INT UNSIGNED NOT NULL,
       aura_code VARCHAR(16) NOT NULL,
       effect_index TINYINT NOT NULL,
+      effect_aura INT NOT NULL,
+      effect_misc INT NOT NULL,
       magnitude INT NOT NULL,
       PRIMARY KEY(spellid, effect_index, aura_code)
     ) ENGINE=Memory;
 
-    INSERT INTO tmp_item_auras_raw(spellid,aura_code,effect_index,magnitude)
-    SELECT spellid, aura_code, effect_index, magnitude
+    INSERT INTO tmp_item_auras_raw(spellid,aura_code,effect_index,effect_aura,effect_misc,magnitude)
+    SELECT spellid, aura_code, effect_index, effect_aura, effect_misc, magnitude
     FROM tmp_item_aura_candidates
     WHERE aura_code IS NOT NULL
       AND magnitude IS NOT NULL
       AND magnitude > 0;
+
+    CREATE TEMPORARY TABLE tmp_aura_library(
+      spellid INT UNSIGNED NOT NULL,
+      effect_index TINYINT NOT NULL,
+      aura_code VARCHAR(16) NOT NULL,
+      effect_misc INT NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(spellid, effect_index, aura_code, effect_misc)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_aura_library(spellid,effect_index,aura_code,effect_misc,magnitude)
+    SELECT slots.`ID`,
+           slots.effect_index,
+           slots.aura_code,
+           slots.effect_misc,
+           slots.magnitude
+    FROM (
+      SELECT `ID`,
+             1 AS effect_index,
+             CASE
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_AP THEN 'AP'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_RAP THEN 'RAP'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_SD AND IFNULL(EffectMiscValue_1, 0) = 0 THEN 'SDALL'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_SD AND (IFNULL(EffectMiscValue_1, 0) & @MASK_SD_ALL)=@MASK_SD_ALL THEN 'SDALL'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_SD AND (IFNULL(EffectMiscValue_1, 0) & @MASK_SD_ALL)<>0 THEN CONCAT('SDONE_', LPAD(IFNULL(EffectMiscValue_1, 0) & @MASK_SD_ALL, 3, '0'))
+               WHEN IFNULL(EffectAura_1, 0) IN (@AURA_HEAL1,@AURA_HEAL2) THEN 'HEAL'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_MP5 AND IFNULL(EffectMiscValue_1, 0) = 0 THEN 'MP5'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_HP5 THEN 'HP5'
+               ELSE NULL
+             END AS aura_code,
+             IFNULL(EffectMiscValue_1, 0) AS effect_misc,
+             GREATEST(0, IFNULL(EffectBasePoints_1, 0) + 1) AS magnitude
+      FROM dbc.spell_lplus
+      UNION ALL
+      SELECT `ID`,
+             2 AS effect_index,
+             CASE
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_AP THEN 'AP'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_RAP THEN 'RAP'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_SD AND IFNULL(EffectMiscValue_2, 0) = 0 THEN 'SDALL'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_SD AND (IFNULL(EffectMiscValue_2, 0) & @MASK_SD_ALL)=@MASK_SD_ALL THEN 'SDALL'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_SD AND (IFNULL(EffectMiscValue_2, 0) & @MASK_SD_ALL)<>0 THEN CONCAT('SDONE_', LPAD(IFNULL(EffectMiscValue_2, 0) & @MASK_SD_ALL, 3, '0'))
+               WHEN IFNULL(EffectAura_2, 0) IN (@AURA_HEAL1,@AURA_HEAL2) THEN 'HEAL'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_MP5 AND IFNULL(EffectMiscValue_2, 0) = 0 THEN 'MP5'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_HP5 THEN 'HP5'
+               ELSE NULL
+             END AS aura_code,
+             IFNULL(EffectMiscValue_2, 0) AS effect_misc,
+             GREATEST(0, IFNULL(EffectBasePoints_2, 0) + 1) AS magnitude
+      FROM dbc.spell_lplus
+      UNION ALL
+      SELECT `ID`,
+             3 AS effect_index,
+             CASE
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_AP THEN 'AP'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_RAP THEN 'RAP'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_SD AND IFNULL(EffectMiscValue_3, 0) = 0 THEN 'SDALL'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_SD AND (IFNULL(EffectMiscValue_3, 0) & @MASK_SD_ALL)=@MASK_SD_ALL THEN 'SDALL'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_SD AND (IFNULL(EffectMiscValue_3, 0) & @MASK_SD_ALL)<>0 THEN CONCAT('SDONE_', LPAD(IFNULL(EffectMiscValue_3, 0) & @MASK_SD_ALL, 3, '0'))
+               WHEN IFNULL(EffectAura_3, 0) IN (@AURA_HEAL1,@AURA_HEAL2) THEN 'HEAL'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_MP5 AND IFNULL(EffectMiscValue_3, 0) = 0 THEN 'MP5'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_HP5 THEN 'HP5'
+               ELSE NULL
+             END AS aura_code,
+             IFNULL(EffectMiscValue_3, 0) AS effect_misc,
+             GREATEST(0, IFNULL(EffectBasePoints_3, 0) + 1) AS magnitude
+      FROM dbc.spell_lplus
+    ) AS slots
+    WHERE slots.aura_code IS NOT NULL
+      AND slots.magnitude > 0;
 
     SET @item_spell_count := (SELECT COUNT(*) FROM tmp_item_spells);
     SET @aura_candidate_rows := (
@@ -332,6 +405,8 @@ proc: BEGIN
       spellid INT UNSIGNED NOT NULL,
       effect_index TINYINT NOT NULL,
       aura_code VARCHAR(16) NOT NULL,
+      effect_aura INT NOT NULL,
+      effect_misc INT NOT NULL,
       old_magnitude INT NOT NULL,
       desired_magnitude INT NOT NULL,
       new_magnitude INT NOT NULL,
@@ -420,10 +495,12 @@ proc: BEGIN
       SET @prev_aura_mag := 0;
       SET @aura_rank := 0;
 
-      INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,old_magnitude,desired_magnitude,new_magnitude,aura_rank)
+      INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,effect_aura,effect_misc,old_magnitude,desired_magnitude,new_magnitude,aura_rank)
       SELECT z.spellid,
              z.effect_index,
              z.aura_code,
+             z.effect_aura,
+             z.effect_misc,
              z.magnitude AS old_magnitude,
              z.planned_magnitude,
              z.planned_magnitude,
@@ -445,10 +522,12 @@ proc: BEGIN
                )) AS planned_magnitude,
                (@prev_aura_code := x.aura_code) AS assign_prev_code
         FROM (
-          SELECT r.spellid,
-                 r.effect_index,
-                 r.aura_code,
-                 r.magnitude,
+           SELECT r.spellid,
+                  r.effect_index,
+                  r.aura_code,
+                  r.effect_aura,
+                  r.effect_misc,
+                  r.magnitude,
                  GREATEST(0, ROUND(r.magnitude * @aura_scale)) AS desired_mag
           FROM tmp_item_auras_raw r
         ) AS x
@@ -556,10 +635,12 @@ proc: BEGIN
       SET @prev_aura_mag := 0;
       SET @aura_rank := 0;
 
-      INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,old_magnitude,desired_magnitude,new_magnitude,aura_rank)
+      INSERT INTO tmp_aura_updates(spellid,effect_index,aura_code,effect_aura,effect_misc,old_magnitude,desired_magnitude,new_magnitude,aura_rank)
       SELECT z.spellid,
              z.effect_index,
              z.aura_code,
+             z.effect_aura,
+             z.effect_misc,
              z.magnitude AS old_magnitude,
              z.planned_magnitude,
              z.planned_magnitude,
@@ -581,10 +662,12 @@ proc: BEGIN
                )) AS planned_magnitude,
                (@prev_aura_code := x.aura_code) AS assign_prev_code
         FROM (
-          SELECT r.spellid,
-                 r.effect_index,
-                 r.aura_code,
-                 r.magnitude,
+           SELECT r.spellid,
+                  r.effect_index,
+                  r.aura_code,
+                  r.effect_aura,
+                  r.effect_misc,
+                  r.magnitude,
                  GREATEST(0, ROUND(r.magnitude * @aura_scale)) AS desired_mag
           FROM tmp_item_auras_raw r
         ) AS x
@@ -849,112 +932,201 @@ proc: BEGIN
            (p_entry, 'resist_final', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane));
 
     IF @scale_auras = 1 THEN
-      SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
-      IF @pending_aura_rows > 0 THEN
-        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-        SELECT p_entry,
-               'aura_apply_plan',
-               CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
-               u.new_magnitude,
-               CONCAT('spell=', u.spellid)
-        FROM tmp_aura_updates u;
+        SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
+        IF @pending_aura_rows > 0 THEN
+          INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+          SELECT p_entry,
+                 'aura_apply_plan',
+                 CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+                 u.new_magnitude,
+                 CONCAT('spell=', u.spellid)
+          FROM tmp_aura_updates u;
 
-        SET @pending_aura_changes := (SELECT COUNT(*) FROM tmp_aura_updates WHERE new_magnitude <> old_magnitude);
-
-        IF @pending_aura_changes > 0 THEN
-          DROP TEMPORARY TABLE IF EXISTS tmp_aura_spell_clones;
-          CREATE TEMPORARY TABLE tmp_aura_spell_clones(
+          DROP TEMPORARY TABLE IF EXISTS tmp_aura_spell_swaps;
+          CREATE TEMPORARY TABLE tmp_aura_spell_swaps(
             old_spellid INT UNSIGNED PRIMARY KEY,
             new_spellid INT UNSIGNED NOT NULL
           ) ENGINE=Memory;
 
-          SET @next_spell_id := (SELECT IFNULL(MAX(ID), 0) FROM dbc.spell_lplus);
+          SET @pending_aura_changes := (SELECT COUNT(*) FROM tmp_aura_updates WHERE new_magnitude <> old_magnitude);
 
-          INSERT INTO tmp_aura_spell_clones(old_spellid,new_spellid)
-          SELECT d.spellid,
-                 (@next_spell_id := @next_spell_id + 1)
-          FROM (
-            SELECT DISTINCT u.spellid
-            FROM tmp_aura_updates u
-            WHERE u.new_magnitude <> u.old_magnitude
-          ) AS d
-          ORDER BY d.spellid;
+          IF @pending_aura_changes > 0 THEN
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_existing_match;
+            CREATE TEMPORARY TABLE tmp_aura_existing_match(
+              spellid INT UNSIGNED PRIMARY KEY,
+              reuse_spellid INT UNSIGNED NOT NULL
+            ) ENGINE=Memory;
 
-          UPDATE tmp_aura_updates u
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = u.spellid
-          SET u.new_spellid = sc.new_spellid;
+            INSERT INTO tmp_aura_existing_match(spellid,reuse_spellid)
+            SELECT matches.orig_spellid,
+                   MIN(matches.candidate_spellid) AS reuse_spellid
+            FROM (
+              SELECT d.spellid AS orig_spellid,
+                     c.spellid AS candidate_spellid,
+                     COUNT(*) AS match_count
+              FROM tmp_aura_updates d
+              JOIN tmp_aura_library c
+                ON c.aura_code = d.aura_code
+               AND c.magnitude = d.new_magnitude
+               AND c.effect_misc = d.effect_misc
+              GROUP BY d.spellid, c.spellid
+            ) AS matches
+            JOIN (
+              SELECT spellid, COUNT(*) AS desired_count
+              FROM tmp_aura_updates
+              GROUP BY spellid
+            ) AS desired ON desired.spellid = matches.orig_spellid
+            JOIN (
+              SELECT spellid, COUNT(*) AS library_count
+              FROM tmp_aura_library
+              GROUP BY spellid
+            ) AS lib ON lib.spellid = matches.candidate_spellid
+            JOIN (
+              SELECT DISTINCT spellid
+              FROM tmp_aura_updates
+              WHERE new_magnitude <> old_magnitude
+            ) AS changed ON changed.spellid = matches.orig_spellid
+            WHERE matches.match_count = desired.desired_count
+              AND lib.library_count = desired.desired_count
+            GROUP BY matches.orig_spellid;
 
-          DROP TEMPORARY TABLE IF EXISTS tmp_spell_clone_rows;
-          CREATE TEMPORARY TABLE tmp_spell_clone_rows LIKE dbc.spell_lplus;
+            SET @reuse_rows := (SELECT COUNT(*) FROM tmp_aura_existing_match);
+            IF @reuse_rows > 0 THEN
+              UPDATE tmp_aura_updates u
+              JOIN tmp_aura_existing_match m ON m.spellid = u.spellid
+              SET u.new_spellid = m.reuse_spellid
+              WHERE u.new_magnitude <> u.old_magnitude;
 
-          INSERT INTO tmp_spell_clone_rows
-          SELECT s.*
-          FROM dbc.spell_lplus s
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = s.`ID`;
+              INSERT IGNORE INTO tmp_aura_spell_swaps(old_spellid, new_spellid)
+              SELECT m.spellid, m.reuse_spellid
+              FROM tmp_aura_existing_match m;
 
-          UPDATE tmp_spell_clone_rows t
-          LEFT JOIN (
-            SELECT spellid,
-                   MAX(CASE WHEN effect_index=1 THEN new_magnitude - 1 END) AS bp1,
-                   MAX(CASE WHEN effect_index=2 THEN new_magnitude - 1 END) AS bp2,
-                   MAX(CASE WHEN effect_index=3 THEN new_magnitude - 1 END) AS bp3
-            FROM tmp_aura_updates
-            WHERE new_magnitude <> old_magnitude
-            GROUP BY spellid
-          ) upd ON upd.spellid = t.`ID`
-          SET t.EffectBasePoints_1 = CASE WHEN upd.bp1 IS NOT NULL THEN upd.bp1 ELSE t.EffectBasePoints_1 END,
-              t.EffectBasePoints_2 = CASE WHEN upd.bp2 IS NOT NULL THEN upd.bp2 ELSE t.EffectBasePoints_2 END,
-              t.EffectBasePoints_3 = CASE WHEN upd.bp3 IS NOT NULL THEN upd.bp3 ELSE t.EffectBasePoints_3 END;
+              INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+              SELECT p_entry,
+                     'aura_spell_reuse',
+                     CAST(m.spellid AS CHAR),
+                     m.reuse_spellid,
+                     GROUP_CONCAT(CONCAT(u.aura_code, '=', u.new_magnitude)
+                                  ORDER BY u.aura_code, u.effect_index SEPARATOR ';')
+              FROM tmp_aura_existing_match m
+              JOIN tmp_aura_updates u ON u.spellid = m.spellid
+              GROUP BY m.spellid, m.reuse_spellid;
+            END IF;
 
-          UPDATE tmp_spell_clone_rows t
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.`ID`
-          SET t.ID = sc.new_spellid;
+            SET @pending_aura_clone_changes := (
+              SELECT COUNT(DISTINCT spellid)
+              FROM tmp_aura_updates
+              WHERE new_magnitude <> old_magnitude
+                AND new_spellid IS NULL
+            );
 
-          INSERT INTO dbc.spell_lplus
-          SELECT * FROM tmp_spell_clone_rows;
+            IF @pending_aura_clone_changes > 0 THEN
+              DROP TEMPORARY TABLE IF EXISTS tmp_aura_spell_clones;
+              CREATE TEMPORARY TABLE tmp_aura_spell_clones(
+                old_spellid INT UNSIGNED PRIMARY KEY,
+                new_spellid INT UNSIGNED NOT NULL
+              ) ENGINE=Memory;
 
-          INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-          SELECT p_entry,
-                 'aura_spell_clone',
-                 CAST(sc.old_spellid AS CHAR),
-                 sc.new_spellid,
-                 GROUP_CONCAT(CONCAT('e', u.effect_index, '=', u.new_magnitude)
-                              ORDER BY u.effect_index SEPARATOR ';')
-          FROM tmp_aura_spell_clones sc
-          LEFT JOIN tmp_aura_updates u ON u.spellid = sc.old_spellid
-          GROUP BY sc.old_spellid, sc.new_spellid;
+              SET @next_spell_id := (SELECT IFNULL(MAX(ID), 0) FROM dbc.spell_lplus);
+
+              INSERT INTO tmp_aura_spell_clones(old_spellid,new_spellid)
+              SELECT d.spellid,
+                     (@next_spell_id := @next_spell_id + 1)
+              FROM (
+                SELECT DISTINCT u.spellid
+                FROM tmp_aura_updates u
+                WHERE u.new_magnitude <> u.old_magnitude
+                  AND u.new_spellid IS NULL
+              ) AS d
+              ORDER BY d.spellid;
+
+              UPDATE tmp_aura_updates u
+              JOIN tmp_aura_spell_clones sc ON sc.old_spellid = u.spellid
+              SET u.new_spellid = sc.new_spellid
+              WHERE u.new_spellid IS NULL;
+
+              DROP TEMPORARY TABLE IF EXISTS tmp_spell_clone_rows;
+              CREATE TEMPORARY TABLE tmp_spell_clone_rows LIKE dbc.spell_lplus;
+
+              INSERT INTO tmp_spell_clone_rows
+              SELECT s.*
+              FROM dbc.spell_lplus s
+              JOIN tmp_aura_spell_clones sc ON sc.old_spellid = s.`ID`;
+
+              UPDATE tmp_spell_clone_rows t
+              LEFT JOIN (
+                SELECT u.spellid,
+                       MAX(CASE WHEN u.effect_index=1 THEN u.new_magnitude - 1 END) AS bp1,
+                       MAX(CASE WHEN u.effect_index=2 THEN u.new_magnitude - 1 END) AS bp2,
+                       MAX(CASE WHEN u.effect_index=3 THEN u.new_magnitude - 1 END) AS bp3
+                FROM tmp_aura_updates u
+                JOIN tmp_aura_spell_clones sc ON sc.old_spellid = u.spellid
+                GROUP BY u.spellid
+              ) upd ON upd.spellid = t.`ID`
+              SET t.EffectBasePoints_1 = CASE WHEN upd.bp1 IS NOT NULL THEN upd.bp1 ELSE t.EffectBasePoints_1 END,
+                  t.EffectBasePoints_2 = CASE WHEN upd.bp2 IS NOT NULL THEN upd.bp2 ELSE t.EffectBasePoints_2 END,
+                  t.EffectBasePoints_3 = CASE WHEN upd.bp3 IS NOT NULL THEN upd.bp3 ELSE t.EffectBasePoints_3 END;
+
+              UPDATE tmp_spell_clone_rows t
+              JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.`ID`
+              SET t.ID = sc.new_spellid;
+
+              INSERT INTO dbc.spell_lplus
+              SELECT * FROM tmp_spell_clone_rows;
+
+              INSERT IGNORE INTO tmp_aura_spell_swaps(old_spellid, new_spellid)
+              SELECT sc.old_spellid, sc.new_spellid
+              FROM tmp_aura_spell_clones sc;
+
+              INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+              SELECT p_entry,
+                     'aura_spell_clone',
+                     CAST(sc.old_spellid AS CHAR),
+                     sc.new_spellid,
+                     GROUP_CONCAT(CONCAT('e', u.effect_index, '=', u.new_magnitude)
+                                  ORDER BY u.effect_index SEPARATOR ';')
+              FROM tmp_aura_spell_clones sc
+              LEFT JOIN tmp_aura_updates u ON u.spellid = sc.old_spellid
+              GROUP BY sc.old_spellid, sc.new_spellid;
+
+              DROP TEMPORARY TABLE IF EXISTS tmp_spell_clone_rows;
+              DROP TEMPORARY TABLE IF EXISTS tmp_aura_spell_clones;
+            END IF;
+
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_existing_match;
+          END IF;
 
           UPDATE lplusworld.item_template t
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_1
-          SET t.spellid_1 = sc.new_spellid
+          JOIN tmp_aura_spell_swaps sw ON sw.old_spellid = t.spellid_1
+          SET t.spellid_1 = sw.new_spellid
           WHERE t.entry = p_entry;
 
           UPDATE lplusworld.item_template t
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_2
-          SET t.spellid_2 = sc.new_spellid
+          JOIN tmp_aura_spell_swaps sw ON sw.old_spellid = t.spellid_2
+          SET t.spellid_2 = sw.new_spellid
           WHERE t.entry = p_entry;
 
           UPDATE lplusworld.item_template t
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_3
-          SET t.spellid_3 = sc.new_spellid
+          JOIN tmp_aura_spell_swaps sw ON sw.old_spellid = t.spellid_3
+          SET t.spellid_3 = sw.new_spellid
           WHERE t.entry = p_entry;
 
           UPDATE lplusworld.item_template t
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_4
-          SET t.spellid_4 = sc.new_spellid
+          JOIN tmp_aura_spell_swaps sw ON sw.old_spellid = t.spellid_4
+          SET t.spellid_4 = sw.new_spellid
           WHERE t.entry = p_entry;
 
           UPDATE lplusworld.item_template t
-          JOIN tmp_aura_spell_clones sc ON sc.old_spellid = t.spellid_5
-          SET t.spellid_5 = sc.new_spellid
+          JOIN tmp_aura_spell_swaps sw ON sw.old_spellid = t.spellid_5
+          SET t.spellid_5 = sw.new_spellid
           WHERE t.entry = p_entry;
 
           INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
           SELECT p_entry,
                  'aura_spell_swap',
                  CONCAT('slot', slots.slot_no),
-                 sc.new_spellid,
-                 CONCAT('old_spell=', sc.old_spellid)
+                 sw.new_spellid,
+                 CONCAT('old_spell=', sw.old_spellid)
           FROM (
             SELECT 1 AS slot_no, spellid_1 AS spellid, spelltrigger_1 AS trig FROM lplusworld.item_template WHERE entry = p_entry
             UNION ALL SELECT 2, spellid_2, spelltrigger_2 FROM lplusworld.item_template WHERE entry = p_entry
@@ -962,32 +1134,32 @@ proc: BEGIN
             UNION ALL SELECT 4, spellid_4, spelltrigger_4 FROM lplusworld.item_template WHERE entry = p_entry
             UNION ALL SELECT 5, spellid_5, spelltrigger_5 FROM lplusworld.item_template WHERE entry = p_entry
           ) AS slots
-          JOIN tmp_aura_spell_clones sc ON sc.new_spellid = slots.spellid
+          JOIN tmp_aura_spell_swaps sw ON sw.new_spellid = slots.spellid
           WHERE slots.trig = 1;
 
-          DROP TEMPORARY TABLE IF EXISTS tmp_spell_clone_rows;
-          DROP TEMPORARY TABLE IF EXISTS tmp_aura_spell_clones;
-        END IF;
+          DROP TEMPORARY TABLE IF EXISTS tmp_aura_spell_swaps;
 
-        INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-        SELECT p_entry,
-               'aura_applied',
-               CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
-               u.new_magnitude,
-               CONCAT('spell=', IFNULL(u.new_spellid, u.spellid),
-                      ',effect=', u.effect_index,
-                      ',old_mag=', u.old_magnitude)
-        FROM tmp_aura_updates u;
-      END IF;
+          INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+          SELECT p_entry,
+                 'aura_applied',
+                 CONCAT(u.aura_code, '#', LPAD(u.aura_rank, 3, '0')),
+                 u.new_magnitude,
+                 CONCAT('spell=', IFNULL(u.new_spellid, u.spellid),
+                        ',effect=', u.effect_index,
+                        ',old_mag=', u.old_magnitude)
+          FROM tmp_aura_updates u;
+        END IF;
     END IF;
 
     CALL helper.sp_EstimateItemLevels();
   END IF;
 
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_library;
+
   SELECT p_entry AS entry,
-         @ilvl_cur AS ilvl_before,
-         p_target_ilvl AS target_ilvl,
-         (SELECT CAST(trueItemLevel AS SIGNED) FROM lplusworld.item_template WHERE entry=p_entry) AS ilvl_after;
+          @ilvl_cur AS ilvl_before,
+          p_target_ilvl AS target_ilvl,
+          (SELECT CAST(trueItemLevel AS SIGNED) FROM lplusworld.item_template WHERE entry=p_entry) AS ilvl_after;
 END proc$$
 
 DELIMITER ;
