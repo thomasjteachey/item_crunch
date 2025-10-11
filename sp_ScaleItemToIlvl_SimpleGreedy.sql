@@ -961,38 +961,75 @@ proc: BEGIN
               reuse_spellid INT UNSIGNED NOT NULL
             ) ENGINE=Memory;
 
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_match_counts;
+            CREATE TEMPORARY TABLE tmp_aura_match_counts(
+              orig_spellid INT UNSIGNED NOT NULL,
+              candidate_spellid INT UNSIGNED NOT NULL,
+              match_count INT NOT NULL,
+              PRIMARY KEY(orig_spellid, candidate_spellid)
+            ) ENGINE=Memory;
+
+            INSERT INTO tmp_aura_match_counts(orig_spellid,candidate_spellid,match_count)
+            SELECT u.spellid,
+                   c.spellid,
+                   COUNT(*) AS match_count
+            FROM tmp_aura_updates u
+            JOIN tmp_aura_library c
+              ON c.aura_code = u.aura_code
+             AND c.magnitude = u.new_magnitude
+             AND c.effect_misc = u.effect_misc
+            GROUP BY u.spellid, c.spellid;
+
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_desired_counts;
+            CREATE TEMPORARY TABLE tmp_aura_desired_counts(
+              spellid INT UNSIGNED PRIMARY KEY,
+              desired_count INT NOT NULL
+            ) ENGINE=Memory;
+
+            INSERT INTO tmp_aura_desired_counts(spellid,desired_count)
+            SELECT spellid, COUNT(*) AS desired_count
+            FROM tmp_aura_updates
+            GROUP BY spellid;
+
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_changed_spells;
+            CREATE TEMPORARY TABLE tmp_aura_changed_spells(
+              spellid INT UNSIGNED PRIMARY KEY
+            ) ENGINE=Memory;
+
+            INSERT INTO tmp_aura_changed_spells(spellid)
+            SELECT DISTINCT spellid
+            FROM tmp_aura_updates
+            WHERE new_magnitude <> old_magnitude;
+
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_library_counts;
+            CREATE TEMPORARY TABLE tmp_aura_library_counts(
+              spellid INT UNSIGNED PRIMARY KEY,
+              library_count INT NOT NULL
+            ) ENGINE=Memory;
+
+            INSERT INTO tmp_aura_library_counts(spellid,library_count)
+            SELECT spellid, COUNT(*) AS library_count
+            FROM tmp_aura_library
+            GROUP BY spellid;
+
             INSERT INTO tmp_aura_existing_match(spellid,reuse_spellid)
             SELECT matches.orig_spellid,
                    MIN(matches.candidate_spellid) AS reuse_spellid
-            FROM (
-              SELECT d.spellid AS orig_spellid,
-                     c.spellid AS candidate_spellid,
-                     COUNT(*) AS match_count
-              FROM tmp_aura_updates d
-              JOIN tmp_aura_library c
-                ON c.aura_code = d.aura_code
-               AND c.magnitude = d.new_magnitude
-               AND c.effect_misc = d.effect_misc
-              GROUP BY d.spellid, c.spellid
-            ) AS matches
-            JOIN (
-              SELECT spellid, COUNT(*) AS desired_count
-              FROM tmp_aura_updates
-              GROUP BY spellid
-            ) AS desired ON desired.spellid = matches.orig_spellid
-            JOIN (
-              SELECT spellid, COUNT(*) AS library_count
-              FROM tmp_aura_library
-              GROUP BY spellid
-            ) AS lib ON lib.spellid = matches.candidate_spellid
-            JOIN (
-              SELECT DISTINCT spellid
-              FROM tmp_aura_updates
-              WHERE new_magnitude <> old_magnitude
-            ) AS changed ON changed.spellid = matches.orig_spellid
+            FROM tmp_aura_match_counts matches
+            JOIN tmp_aura_desired_counts desired
+              ON desired.spellid = matches.orig_spellid
+            JOIN tmp_aura_library_counts lib
+              ON lib.spellid = matches.candidate_spellid
+            JOIN tmp_aura_changed_spells changed
+              ON changed.spellid = matches.orig_spellid
             WHERE matches.match_count = desired.desired_count
               AND lib.library_count = desired.desired_count
             GROUP BY matches.orig_spellid;
+
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_match_counts;
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_desired_counts;
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_library_counts;
+            DROP TEMPORARY TABLE IF EXISTS tmp_aura_changed_spells;
 
             SET @reuse_rows := (SELECT COUNT(*) FROM tmp_aura_existing_match);
             IF @reuse_rows > 0 THEN
