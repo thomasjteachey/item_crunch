@@ -68,7 +68,7 @@ BEGIN
     WHERE entry=v_entry;
 
     /* scale via the simple greedy scaler (applies if v_apply=1) */
-    CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(v_entry, v_target, v_apply);
+    CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(v_entry, v_target, v_apply, 1);
 
     /* estimator already called inside scaler when apply=1, but safe to ensure */
     IF v_apply = 1 THEN CALL helper.sp_EstimateItemLevels(); END IF;
