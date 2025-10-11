@@ -509,6 +509,8 @@ proc: BEGIN
         SELECT x.spellid,
                x.effect_index,
                x.aura_code,
+               x.effect_aura,
+               x.effect_misc,
                x.magnitude,
                (@aura_rank := IF(@prev_aura_code = x.aura_code, @aura_rank + 1, 1)) AS aura_rank,
                (@prev_aura_mag := IF(
@@ -649,6 +651,8 @@ proc: BEGIN
         SELECT x.spellid,
                x.effect_index,
                x.aura_code,
+               x.effect_aura,
+               x.effect_misc,
                x.magnitude,
                (@aura_rank := IF(@prev_aura_code = x.aura_code, @aura_rank + 1, 1)) AS aura_rank,
                (@prev_aura_mag := IF(
