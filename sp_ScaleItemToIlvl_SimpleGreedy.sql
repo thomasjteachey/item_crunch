@@ -41,6 +41,8 @@ proc: BEGIN
   SET @AURA_HEAL1 := 115; SET @AURA_HEAL2 := 135;
   SET @AURA_MP5 := 85;   SET @AURA_HP5 := 83;
 
+  SET @ATTR_PASSIVE := 0x00000040;
+
   SET @scale_auras := CASE WHEN IFNULL(p_scale_auras, 1) <> 0 THEN 1 ELSE 0 END;
 
   /* basics */
@@ -207,6 +209,7 @@ proc: BEGIN
              IFNULL(EffectMiscValue_1, 0) AS effect_misc,
              IFNULL(EffectBasePoints_1, 0) AS base_points
       FROM dbc.spell_lplus
+      WHERE (Attributes & @ATTR_PASSIVE) <> 0
       UNION ALL
       SELECT `ID`,
              2 AS effect_index,
@@ -214,6 +217,7 @@ proc: BEGIN
              IFNULL(EffectMiscValue_2, 0) AS effect_misc,
              IFNULL(EffectBasePoints_2, 0) AS base_points
       FROM dbc.spell_lplus
+      WHERE (Attributes & @ATTR_PASSIVE) <> 0
       UNION ALL
       SELECT `ID`,
              3 AS effect_index,
@@ -221,6 +225,7 @@ proc: BEGIN
              IFNULL(EffectMiscValue_3, 0) AS effect_misc,
              IFNULL(EffectBasePoints_3, 0) AS base_points
       FROM dbc.spell_lplus
+      WHERE (Attributes & @ATTR_PASSIVE) <> 0
     ) AS slots ON slots.`ID` = tis.spellid;
 
     CREATE TEMPORARY TABLE tmp_item_auras_raw(
@@ -272,6 +277,7 @@ proc: BEGIN
              IFNULL(EffectMiscValue_1, 0) AS effect_misc,
              GREATEST(0, IFNULL(EffectBasePoints_1, 0) + 1) AS magnitude
       FROM dbc.spell_lplus
+      WHERE (Attributes & @ATTR_PASSIVE) <> 0
       UNION ALL
       SELECT `ID`,
              2 AS effect_index,
@@ -289,6 +295,7 @@ proc: BEGIN
              IFNULL(EffectMiscValue_2, 0) AS effect_misc,
              GREATEST(0, IFNULL(EffectBasePoints_2, 0) + 1) AS magnitude
       FROM dbc.spell_lplus
+      WHERE (Attributes & @ATTR_PASSIVE) <> 0
       UNION ALL
       SELECT `ID`,
              3 AS effect_index,
@@ -306,6 +313,7 @@ proc: BEGIN
              IFNULL(EffectMiscValue_3, 0) AS effect_misc,
              GREATEST(0, IFNULL(EffectBasePoints_3, 0) + 1) AS magnitude
       FROM dbc.spell_lplus
+      WHERE (Attributes & @ATTR_PASSIVE) <> 0
     ) AS slots
     WHERE slots.aura_code IS NOT NULL
       AND slots.magnitude > 0;
@@ -373,24 +381,57 @@ proc: BEGIN
     END IF;
 
     CREATE TEMPORARY TABLE tmp_item_aura_totals(
-      aura_code VARCHAR(16) PRIMARY KEY,
-      total_mag DOUBLE NOT NULL
+      spellid INT UNSIGNED PRIMARY KEY,
+      ap DOUBLE NOT NULL,
+      rap DOUBLE NOT NULL,
+      sd_all DOUBLE NOT NULL,
+      sd_one DOUBLE NOT NULL,
+      heal DOUBLE NOT NULL,
+      mp5 DOUBLE NOT NULL,
+      hp5 DOUBLE NOT NULL
     ) ENGINE=Memory;
 
-    INSERT INTO tmp_item_aura_totals(aura_code,total_mag)
-    SELECT aura_code, SUM(magnitude)
-    FROM tmp_item_auras_raw
-    GROUP BY aura_code;
+    INSERT INTO tmp_item_aura_totals(spellid, ap, rap, sd_all, sd_one, heal, mp5, hp5)
+    SELECT sums.spellid,
+           CASE
+             WHEN sums.ap_sum > 0 AND sums.rap_sum > 0 THEN GREATEST(sums.ap_sum, sums.rap_sum)
+             ELSE sums.ap_sum
+           END AS ap,
+           CASE
+             WHEN sums.ap_sum > 0 AND sums.rap_sum > 0 THEN 0
+             ELSE sums.rap_sum
+           END AS rap,
+           sums.sd_all_sum,
+           sums.sd_one_sum,
+           CASE
+             WHEN sums.sd_all_sum > 0 AND sums.heal_sum > 0 THEN 0
+             ELSE sums.heal_sum
+           END AS heal,
+           sums.mp5_sum,
+           sums.hp5_sum
+    FROM (
+      SELECT spellid,
+             SUM(CASE WHEN aura_code='AP' THEN magnitude ELSE 0 END) AS ap_sum,
+             SUM(CASE WHEN aura_code='RAP' THEN magnitude ELSE 0 END) AS rap_sum,
+             SUM(CASE WHEN aura_code='SDALL' THEN magnitude ELSE 0 END) AS sd_all_sum,
+             SUM(CASE WHEN aura_code LIKE 'SDONE%' THEN magnitude ELSE 0 END) AS sd_one_sum,
+             SUM(CASE WHEN aura_code='HEAL' THEN magnitude ELSE 0 END) AS heal_sum,
+             SUM(CASE WHEN aura_code='MP5' THEN magnitude ELSE 0 END) AS mp5_sum,
+             SUM(CASE WHEN aura_code='HP5' THEN magnitude ELSE 0 END) AS hp5_sum
+      FROM tmp_item_auras_raw
+      GROUP BY spellid
+    ) AS sums;
 
-    SET @aur_ap     := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='AP'), 0.0);
-    SET @aur_rap    := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='RAP'), 0.0);
-    SET @aur_sd_all := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='SDALL'), 0.0);
-    SET @aur_sd_one := IFNULL((SELECT SUM(total_mag) FROM tmp_item_aura_totals WHERE aura_code LIKE 'SDONE%'), 0.0);
-    SET @aur_heal_raw := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='HEAL'), 0.0);
-    SET @aur_mp5    := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='MP5'), 0.0);
-    SET @aur_hp5    := IFNULL((SELECT total_mag FROM tmp_item_aura_totals WHERE aura_code='HP5'), 0.0);
-
-    SET @aur_heal := CASE WHEN @aur_sd_all > 0 AND @aur_heal_raw = @aur_sd_all THEN 0 ELSE @aur_heal_raw END;
+    SELECT
+      IFNULL(SUM(ap), 0.0),
+      IFNULL(SUM(rap), 0.0),
+      IFNULL(SUM(sd_all), 0.0),
+      IFNULL(SUM(sd_one), 0.0),
+      IFNULL(SUM(heal), 0.0),
+      IFNULL(SUM(mp5), 0.0),
+      IFNULL(SUM(hp5), 0.0)
+    INTO @aur_ap, @aur_rap, @aur_sd_all, @aur_sd_one, @aur_heal, @aur_mp5, @aur_hp5
+    FROM tmp_item_aura_totals;
 
     SET @S_cur_a :=
         POW(GREATEST(0, @aur_ap     * @W_AP),     1.5)
@@ -751,15 +792,46 @@ proc: BEGIN
         SET @pending_aura_rows := @pending_aura_rows - 1;
       END WHILE;
 
-      SET @aur_new_ap := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='AP'), 0.0);
-      SET @aur_new_rap := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='RAP'), 0.0);
-      SET @aur_new_sd_all := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='SDALL'), 0.0);
-      SET @aur_new_sd_one := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code LIKE 'SDONE%'), 0.0);
-      SET @aur_new_heal_raw := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='HEAL'), 0.0);
-      SET @aur_new_mp5 := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='MP5'), 0.0);
-      SET @aur_new_hp5 := IFNULL((SELECT SUM(new_magnitude) FROM tmp_aura_updates WHERE aura_code='HP5'), 0.0);
-
-      SET @aur_new_heal := CASE WHEN @aur_new_sd_all > 0 AND @aur_new_heal_raw = @aur_new_sd_all THEN 0 ELSE @aur_new_heal_raw END;
+      SELECT
+        IFNULL(SUM(final_ap), 0.0),
+        IFNULL(SUM(final_rap), 0.0),
+        IFNULL(SUM(final_sd_all), 0.0),
+        IFNULL(SUM(final_sd_one), 0.0),
+        IFNULL(SUM(final_heal), 0.0),
+        IFNULL(SUM(final_mp5), 0.0),
+        IFNULL(SUM(final_hp5), 0.0)
+      INTO @aur_new_ap, @aur_new_rap, @aur_new_sd_all, @aur_new_sd_one, @aur_new_heal, @aur_new_mp5, @aur_new_hp5
+      FROM (
+        SELECT sums.spellid,
+               CASE
+                 WHEN sums.ap_sum > 0 AND sums.rap_sum > 0 THEN GREATEST(sums.ap_sum, sums.rap_sum)
+                 ELSE sums.ap_sum
+               END AS final_ap,
+               CASE
+                 WHEN sums.ap_sum > 0 AND sums.rap_sum > 0 THEN 0
+                 ELSE sums.rap_sum
+               END AS final_rap,
+               sums.sd_all_sum AS final_sd_all,
+               sums.sd_one_sum AS final_sd_one,
+               CASE
+                 WHEN sums.sd_all_sum > 0 AND sums.heal_sum > 0 THEN 0
+                 ELSE sums.heal_sum
+               END AS final_heal,
+               sums.mp5_sum AS final_mp5,
+               sums.hp5_sum AS final_hp5
+        FROM (
+          SELECT spellid,
+                 SUM(CASE WHEN aura_code='AP' THEN new_magnitude ELSE 0 END) AS ap_sum,
+                 SUM(CASE WHEN aura_code='RAP' THEN new_magnitude ELSE 0 END) AS rap_sum,
+                 SUM(CASE WHEN aura_code='SDALL' THEN new_magnitude ELSE 0 END) AS sd_all_sum,
+                 SUM(CASE WHEN aura_code LIKE 'SDONE%' THEN new_magnitude ELSE 0 END) AS sd_one_sum,
+                 SUM(CASE WHEN aura_code='HEAL' THEN new_magnitude ELSE 0 END) AS heal_sum,
+                 SUM(CASE WHEN aura_code='MP5' THEN new_magnitude ELSE 0 END) AS mp5_sum,
+                 SUM(CASE WHEN aura_code='HP5' THEN new_magnitude ELSE 0 END) AS hp5_sum
+          FROM tmp_aura_updates
+          GROUP BY spellid
+        ) AS sums
+      ) AS final;
 
       SET @S_final_a :=
           POW(GREATEST(0, @aur_new_ap     * @W_AP),     1.5)

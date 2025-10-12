@@ -116,68 +116,90 @@ BEGIN
          SUM(sc.mp5_amt),
          SUM(sc.hp5_amt)
   FROM (
-    SELECT es.entry, es.sid,
+    SELECT raw.entry, raw.sid,
+           CASE
+             WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN GREATEST(raw.ap_raw, raw.rap_raw)
+             ELSE raw.ap_raw
+           END AS ap_amt,
+           CASE
+             WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN 0
+             ELSE raw.rap_raw
+           END AS rap_amt,
+           raw.hit_amt,
+           raw.sphit_amt,
+           raw.spcrit_amt,
+           raw.crit_amt,
+           raw.sd_all_amt,
+           raw.sd_one_amt,
+           CASE
+             WHEN raw.sd_all_amt > 0 AND raw.heal_amt > 0 THEN 0
+             ELSE raw.heal_amt
+           END AS heal_amt,
+           raw.mp5_amt,
+           raw.hp5_amt
+    FROM (
+      SELECT es.entry, es.sid,
 
-      /* AP and RAP as separate lines (no collapsing) */
-      (CASE
-         WHEN s.EffectAura_1=@AURA_AP  THEN (s.EffectBasePoints_1+1)
-         WHEN s.EffectAura_2=@AURA_AP  THEN (s.EffectBasePoints_2+1)
-         WHEN s.EffectAura_3=@AURA_AP  THEN (s.EffectBasePoints_3+1)
-         ELSE 0 END) AS ap_amt,
+        /* AP and RAP as separate lines (no collapsing) */
+        (CASE
+           WHEN s.EffectAura_1=@AURA_AP  THEN (s.EffectBasePoints_1+1)
+           WHEN s.EffectAura_2=@AURA_AP  THEN (s.EffectBasePoints_2+1)
+           WHEN s.EffectAura_3=@AURA_AP  THEN (s.EffectBasePoints_3+1)
+           ELSE 0 END) AS ap_raw,
 
-      (CASE
-         WHEN s.EffectAura_1=@AURA_RAP THEN (s.EffectBasePoints_1+1)
-         WHEN s.EffectAura_2=@AURA_RAP THEN (s.EffectBasePoints_2+1)
-         WHEN s.EffectAura_3=@AURA_RAP THEN (s.EffectBasePoints_3+1)
-         ELSE 0 END) AS rap_amt,
+        (CASE
+           WHEN s.EffectAura_1=@AURA_RAP THEN (s.EffectBasePoints_1+1)
+           WHEN s.EffectAura_2=@AURA_RAP THEN (s.EffectBasePoints_2+1)
+           WHEN s.EffectAura_3=@AURA_RAP THEN (s.EffectBasePoints_3+1)
+           ELSE 0 END) AS rap_raw,
 
-      /* %-stats etc (sum if repeated inside spell) */
-      ((CASE WHEN s.EffectAura_1=@AURA_HIT   THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_2=@AURA_HIT   THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_3=@AURA_HIT   THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS hit_amt,
+        /* %-stats etc (sum if repeated inside spell) */
+        ((CASE WHEN s.EffectAura_1=@AURA_HIT   THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_HIT   THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_HIT   THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS hit_amt,
 
-      ((CASE WHEN s.EffectAura_1=@AURA_SPHIT THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_2=@AURA_SPHIT THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_3=@AURA_SPHIT THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS sphit_amt,
+        ((CASE WHEN s.EffectAura_1=@AURA_SPHIT THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_SPHIT THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_SPHIT THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS sphit_amt,
 
-      ((CASE WHEN s.EffectAura_1 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_2 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_3 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS spcrit_amt,
+        ((CASE WHEN s.EffectAura_1 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS spcrit_amt,
 
-      ((CASE WHEN s.EffectAura_1 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_2 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_3 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS crit_amt,
+        ((CASE WHEN s.EffectAura_1 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS crit_amt,
 
-      /* Spell Power (all schools) vs single-school damage */
-      ((CASE WHEN s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS sd_all_amt,
+        /* Spell Power (all schools) vs single-school damage */
+        ((CASE WHEN s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS sd_all_amt,
 
-      ((CASE WHEN s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS sd_one_amt,
+        ((CASE WHEN s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_1 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_2 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>0 AND (s.EffectMiscValue_3 & @MASK_SD_ALL)<>@MASK_SD_ALL THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS sd_one_amt,
 
-      /* +Healing (Classic separate) */
-      ((CASE WHEN s.EffectAura_1 IN (@AURA_HEAL1,@AURA_HEAL2) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_2 IN (@AURA_HEAL1,@AURA_HEAL2) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_3 IN (@AURA_HEAL1,@AURA_HEAL2) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS heal_amt,
+        /* +Healing (Classic separate) */
+        ((CASE WHEN s.EffectAura_1 IN (@AURA_HEAL1,@AURA_HEAL2) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2 IN (@AURA_HEAL1,@AURA_HEAL2) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3 IN (@AURA_HEAL1,@AURA_HEAL2) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS heal_amt,
 
-      /* Regen */
-      ((CASE WHEN s.EffectAura_1=@AURA_MP5 AND s.EffectMiscValue_1=0 THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_2=@AURA_MP5 AND s.EffectMiscValue_2=0 THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_3=@AURA_MP5 AND s.EffectMiscValue_3=0 THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS mp5_amt,
+        /* Regen */
+        ((CASE WHEN s.EffectAura_1=@AURA_MP5 AND s.EffectMiscValue_1=0 THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_MP5 AND s.EffectMiscValue_2=0 THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_MP5 AND s.EffectMiscValue_3=0 THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS mp5_amt,
 
-      ((CASE WHEN s.EffectAura_1=@AURA_HP5 THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_2=@AURA_HP5 THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-       (CASE WHEN s.EffectAura_3=@AURA_HP5 THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS hp5_amt
+        ((CASE WHEN s.EffectAura_1=@AURA_HP5 THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_HP5 THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_HP5 THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS hp5_amt
 
-    FROM tmp_equip_spells es
-    JOIN dbc.spell_lplus s ON s.ID = es.sid
+      FROM tmp_equip_spells es
+      JOIN dbc.spell_lplus s ON s.ID = es.sid
+    ) raw
   ) sc
   GROUP BY sc.entry;
 
-  /* ===== Convert flattened auras -> powered term_sum with Classic rule:
-           If sd_all_amt>0 AND heal_amt==sd_all_amt, treat it as Spell Power ONLY (zero healing). ===== */
+  /* ===== Convert flattened auras -> powered term_sum with refined classification ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_terms;
   CREATE TEMPORARY TABLE tmp_item_aura_terms(
     entry INT UNSIGNED NOT NULL PRIMARY KEY,
@@ -186,8 +208,6 @@ BEGIN
 
   INSERT INTO tmp_item_aura_terms(entry, term_sum)
   SELECT f.entry,
-         /* Apply “healing suppressed by SP-all if equal” rule */
-         /* effective_heal = 0 when sd_all>0 and heal==sd_all, else heal */
          POW(GREATEST(0, f.ap_amt     * @W_AP),     1.5) +
          POW(GREATEST(0, f.rap_amt    * @W_RAP),    1.5) +
          POW(GREATEST(0, f.hit_amt    * @W_HIT),    1.5) +
@@ -196,9 +216,7 @@ BEGIN
          POW(GREATEST(0, f.crit_amt   * @W_CRIT),   1.5) +
          POW(GREATEST(0, f.sd_all_amt * @W_SD_ALL), 1.5) +
          POW(GREATEST(0, f.sd_one_amt * @W_SD_ONE), 1.5) +
-         POW(GREATEST(0,
-             (CASE WHEN f.sd_all_amt > 0 AND f.heal_amt = f.sd_all_amt THEN 0 ELSE f.heal_amt END) * @W_HEAL
-         ), 1.5) +
+         POW(GREATEST(0, f.heal_amt * @W_HEAL), 1.5) +
          POW(GREATEST(0, f.mp5_amt    * @W_MP5),    1.5) +
          POW(GREATEST(0, f.hp5_amt    * @W_HP5),    1.5)
   FROM tmp_aura_flat f;
