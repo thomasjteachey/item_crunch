@@ -135,7 +135,7 @@ BEGIN
         WHILE v_ilvl > v_target AND @iters < 6 DO
           CALL helper.sp_ReforgeItemBudget(
             v_entry,
-            'SPI,RESIST,SDONE,HEAL,MP5,HP5',  -- remove soft/caster budget first
+            '',
             '', 'dump', v_apply, 'NONE'
           );
           IF v_apply=1 THEN CALL helper.sp_EstimateItemLevels(); END IF;

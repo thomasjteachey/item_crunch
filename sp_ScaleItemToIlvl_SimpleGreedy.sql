@@ -35,6 +35,7 @@ proc: BEGIN
   SET @W_MP5     :=  550.0;
   SET @W_HP5     :=  550.0;
   SET @W_RESIST  :=  230.0;
+  SET @W_BONUSARMOR :=   22.0;
 
   SET @AURA_AP := 99;    SET @AURA_RAP := 124;
   SET @AURA_SD := 13;    SET @MASK_SD_ALL := 126;
@@ -75,12 +76,14 @@ proc: BEGIN
          stat_type4,stat_value4, stat_type5,stat_value5, stat_type6,stat_value6,
          stat_type7,stat_value7, stat_type8,stat_value8, stat_type9,stat_value9,
          stat_type10,stat_value10,
-         holy_res, fire_res, nature_res, frost_res, shadow_res, arcane_res
+         holy_res, fire_res, nature_res, frost_res, shadow_res, arcane_res,
+         ArmorDamageModifier
   INTO  @st1,@sv1, @st2,@sv2, @st3,@sv3,
         @st4,@sv4, @st5,@sv5, @st6,@sv6,
         @st7,@sv7, @st8,@sv8, @st9,@sv9,
         @st10,@sv10,
-        @res_holy,@res_fire,@res_nature,@res_frost,@res_shadow,@res_arcane
+        @res_holy,@res_fire,@res_nature,@res_frost,@res_shadow,@res_arcane,
+        @bonus_armor
   FROM lplusworld.item_template
   WHERE entry = p_entry;
 
@@ -138,6 +141,11 @@ proc: BEGIN
   SET @res_shadow_new := @res_shadow;
   SET @res_arcane_new := @res_arcane;
   SET @resist_scale := 1.0;
+
+  /* bonus armor budget */
+  SET @bonus_armor := IFNULL(@bonus_armor, 0.0);
+  SET @S_cur_bonus := POW(GREATEST(0, @bonus_armor * @W_BONUSARMOR), 1.5);
+  SET @bonus_armor_new := @bonus_armor;
 
   /* ===== Current aura budget ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_spells;
@@ -464,24 +472,26 @@ proc: BEGIN
     ) ENGINE=Memory;
   END IF;
 
-  SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res;
+  SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res - @S_cur_bonus;
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
   VALUES (p_entry, 'shared_budget_current', 'primaries', @S_cur_p,
-          CONCAT('auras=', @S_cur_a, ',resists=', @S_cur_res, ',other=', @S_other)),
+          CONCAT('auras=', @S_cur_a, ',resists=', @S_cur_res, ',bonus=', @S_cur_bonus, ',other=', @S_other)),
          (p_entry, 'shared_budget_current', 'auras', @S_cur_a,
-          CONCAT('primaries=', @S_cur_p, ',resists=', @S_cur_res, ',other=', @S_other)),
+          CONCAT('primaries=', @S_cur_p, ',resists=', @S_cur_res, ',bonus=', @S_cur_bonus, ',other=', @S_other)),
          (p_entry, 'shared_budget_current', 'resists', @S_cur_res,
-          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',other=', @S_other));
+          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',bonus=', @S_cur_bonus, ',other=', @S_other)),
+         (p_entry, 'shared_budget_current', 'bonus_armor', @S_cur_bonus,
+          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res, ',other=', @S_other));
   SET @S_target_shared := GREATEST(0.0, @S_tgt - @S_other);
-  IF (@S_cur_p + @S_cur_a + @S_cur_res) > 0 THEN
-    SET @ratio_shared := @S_target_shared / (@S_cur_p + @S_cur_a + @S_cur_res);
+  IF (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus) > 0 THEN
+    SET @ratio_shared := @S_target_shared / (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus);
   ELSE
     SET @ratio_shared := 0.0;
   END IF;
   SET @ratio_shared := GREATEST(0.0, @ratio_shared);
 
-  IF (@S_cur_p + @S_cur_a + @S_cur_res) > 0 THEN
+  IF (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus) > 0 THEN
     SET @shared_scale := CASE
       WHEN @ratio_shared = 0 THEN 0
       ELSE POW(@ratio_shared, 2.0/3.0)
@@ -495,7 +505,8 @@ proc: BEGIN
   SET @S_final_res := @S_cur_res;
   SET @S_final_a := @S_cur_a;
   SET @S_final_p := @S_cur_p;
-  SET @S_after_shared := @S_cur_p + @S_cur_a + @S_cur_res;
+  SET @S_final_bonus := @S_cur_bonus;
+  SET @S_after_shared := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus;
   SET @scale_adjust := 1.0;
   SET @ratio_adjust := 1.0;
 
@@ -526,6 +537,9 @@ proc: BEGIN
       SET @res_arcane_new := @res_arcane;
       SET @S_final_res := 0.0;
     END IF;
+
+    SET @bonus_armor_new := ROUND(GREATEST(0, @bonus_armor * @shared_scale));
+    SET @S_final_bonus := POW(GREATEST(0, @bonus_armor_new * @W_BONUSARMOR), 1.5);
 
     IF @scale_auras = 1 THEN
       DELETE FROM tmp_aura_updates;
@@ -612,7 +626,7 @@ proc: BEGIN
       INTO @S_final_p
     FROM tmp_pnew;
 
-    SET @S_after_shared := @S_final_res + @S_final_a + @S_final_p;
+    SET @S_after_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus;
 
     IF @S_after_shared = 0 THEN
       LEAVE shared_scale_loop;
@@ -656,6 +670,9 @@ proc: BEGIN
         + POW(GREATEST(0, @res_frost_new  * @W_RESIST), 1.5)
         + POW(GREATEST(0, @res_shadow_new * @W_RESIST), 1.5)
         + POW(GREATEST(0, @res_arcane_new * @W_RESIST), 1.5);
+
+    SET @bonus_armor_new := ROUND(GREATEST(0, @bonus_armor * @final_scale));
+    SET @S_final_bonus := POW(GREATEST(0, @bonus_armor_new * @W_BONUSARMOR), 1.5);
 
     DROP TEMPORARY TABLE IF EXISTS tmp_pnew;
     CREATE TEMPORARY TABLE tmp_pnew(stat TINYINT PRIMARY KEY, newv INT) ENGINE=Memory;
@@ -852,7 +869,7 @@ proc: BEGIN
       SET @aur_new_hp5 := 0.0;
     END IF;
 
-    SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p;
+    SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus;
 
     SET @ratio_adjust := 1.0;
     SET @scale_adjust := 1.0;
@@ -898,7 +915,8 @@ proc: BEGIN
          (p_entry, 'resist_update_plan', 'nature', @res_nature_new, CONCAT('old=', @res_nature)),
          (p_entry, 'resist_update_plan', 'frost',  @res_frost_new,  CONCAT('old=', @res_frost)),
          (p_entry, 'resist_update_plan', 'shadow', @res_shadow_new, CONCAT('old=', @res_shadow)),
-         (p_entry, 'resist_update_plan', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane));
+         (p_entry, 'resist_update_plan', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane)),
+         (p_entry, 'bonus_armor_update_plan', 'bonus_armor', @bonus_armor_new, CONCAT('old=', @bonus_armor));
 
   IF @scale_auras = 1 THEN
     INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
@@ -996,7 +1014,8 @@ proc: BEGIN
         t.nature_res   = @res_nature_new,
         t.frost_res    = @res_frost_new,
         t.shadow_res   = @res_shadow_new,
-        t.arcane_res   = @res_arcane_new
+        t.arcane_res   = @res_arcane_new,
+        t.armorDamageModifier = @bonus_armor_new
     WHERE t.entry = p_entry;
 
     INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
@@ -1005,7 +1024,8 @@ proc: BEGIN
            (p_entry, 'resist_final', 'nature', @res_nature_new, CONCAT('old=', @res_nature)),
            (p_entry, 'resist_final', 'frost',  @res_frost_new,  CONCAT('old=', @res_frost)),
            (p_entry, 'resist_final', 'shadow', @res_shadow_new, CONCAT('old=', @res_shadow)),
-           (p_entry, 'resist_final', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane));
+           (p_entry, 'resist_final', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane)),
+           (p_entry, 'bonus_armor_final', 'bonus_armor', @bonus_armor_new, CONCAT('old=', @bonus_armor));
 
     IF @scale_auras = 1 THEN
         SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);

@@ -28,6 +28,51 @@ BEGIN
   SET @AURA_MP5 := 85;   -- Misc=0 => mana regen
   SET @AURA_HP5 := 83;   -- health regen per 5
 
+  /* ===== Base stat terms (flatten primaries first) ===== */
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_primary_terms;
+  CREATE TEMPORARY TABLE tmp_item_primary_terms(
+    entry INT UNSIGNED NOT NULL PRIMARY KEY,
+    term_sum DOUBLE NOT NULL
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_item_primary_terms(entry, term_sum)
+  SELECT s.entry,
+         SUM(POW(GREATEST(0, s.stat_value * @W_PRIMARY), 1.5))
+  FROM (
+    SELECT it.entry,
+           CASE slots.slot
+             WHEN 1 THEN it.stat_type1
+             WHEN 2 THEN it.stat_type2
+             WHEN 3 THEN it.stat_type3
+             WHEN 4 THEN it.stat_type4
+             WHEN 5 THEN it.stat_type5
+             WHEN 6 THEN it.stat_type6
+             WHEN 7 THEN it.stat_type7
+             WHEN 8 THEN it.stat_type8
+             WHEN 9 THEN it.stat_type9
+             WHEN 10 THEN it.stat_type10
+           END AS stat_type,
+           CASE slots.slot
+             WHEN 1 THEN IFNULL(it.stat_value1,0)
+             WHEN 2 THEN IFNULL(it.stat_value2,0)
+             WHEN 3 THEN IFNULL(it.stat_value3,0)
+             WHEN 4 THEN IFNULL(it.stat_value4,0)
+             WHEN 5 THEN IFNULL(it.stat_value5,0)
+             WHEN 6 THEN IFNULL(it.stat_value6,0)
+             WHEN 7 THEN IFNULL(it.stat_value7,0)
+             WHEN 8 THEN IFNULL(it.stat_value8,0)
+             WHEN 9 THEN IFNULL(it.stat_value9,0)
+             WHEN 10 THEN IFNULL(it.stat_value10,0)
+           END AS stat_value
+    FROM lplusworld.item_template it
+    JOIN (
+      SELECT 1 AS slot UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL
+      SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10
+    ) slots
+  ) s
+  WHERE s.stat_type IN (3,4,5,6,7) AND s.stat_value <> 0
+  GROUP BY s.entry;
+
   /* ===== Base terms (from item_template) ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_base_terms;
   CREATE TEMPORARY TABLE tmp_item_base_terms(
@@ -37,18 +82,7 @@ BEGIN
 
   INSERT INTO tmp_item_base_terms(entry, term_sum)
   SELECT it.entry,
-         /* 10 primary stat slots (3..7) */
-           POW(GREATEST(0, CASE WHEN it.stat_type1  IN (3,4,5,6,7) THEN it.stat_value1  * @W_PRIMARY ELSE 0 END), 1.5)
-         + POW(GREATEST(0, CASE WHEN it.stat_type2  IN (3,4,5,6,7) THEN it.stat_value2  * @W_PRIMARY ELSE 0 END), 1.5)
-         + POW(GREATEST(0, CASE WHEN it.stat_type3  IN (3,4,5,6,7) THEN it.stat_value3  * @W_PRIMARY ELSE 0 END), 1.5)
-         + POW(GREATEST(0, CASE WHEN it.stat_type4  IN (3,4,5,6,7) THEN it.stat_value4  * @W_PRIMARY ELSE 0 END), 1.5)
-         + POW(GREATEST(0, CASE WHEN it.stat_type5  IN (3,4,5,6,7) THEN it.stat_value5  * @W_PRIMARY ELSE 0 END), 1.5)
-         + POW(GREATEST(0, CASE WHEN it.stat_type6  IN (3,4,5,6,7) THEN it.stat_value6  * @W_PRIMARY ELSE 0 END), 1.5)
-         + POW(GREATEST(0, CASE WHEN it.stat_type7  IN (3,4,5,6,7) THEN it.stat_value7  * @W_PRIMARY ELSE 0 END), 1.5)
-         + POW(GREATEST(0, CASE WHEN it.stat_type8  IN (3,4,5,6,7) THEN it.stat_value8  * @W_PRIMARY ELSE 0 END), 1.5)
-         + POW(GREATEST(0, CASE WHEN it.stat_type9  IN (3,4,5,6,7) THEN it.stat_value9  * @W_PRIMARY ELSE 0 END), 1.5)
-         + POW(GREATEST(0, CASE WHEN it.stat_type10 IN (3,4,5,6,7) THEN it.stat_value10 * @W_PRIMARY ELSE 0 END), 1.5)
-
+         IFNULL(pt.term_sum, 0)
          /* regular armor excluded */
          + POW(GREATEST(0, IFNULL(it.armor,0) * @W_ARMOR), 1.5)
 
@@ -62,7 +96,10 @@ BEGIN
          + POW(GREATEST(0, IFNULL(it.frost_res,0)  * @W_RESIST), 1.5)
          + POW(GREATEST(0, IFNULL(it.shadow_res,0) * @W_RESIST), 1.5)
          + POW(GREATEST(0, IFNULL(it.arcane_res,0) * @W_RESIST), 1.5)
-  FROM lplusworld.item_template it;
+  FROM lplusworld.item_template it
+  LEFT JOIN tmp_item_primary_terms pt ON pt.entry = it.entry;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_primary_terms;
 
   /* ===== On-equip spells (distinct equips only) ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
