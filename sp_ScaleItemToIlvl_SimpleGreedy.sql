@@ -211,30 +211,27 @@ proc: BEGIN
            END AS magnitude
     FROM tmp_item_spells tis
     JOIN (
-      SELECT `ID`,
-             1 AS effect_index,
-             IFNULL(EffectAura_1, 0) AS effect_aura,
-             IFNULL(EffectMiscValue_1, 0) AS effect_misc,
-             IFNULL(EffectBasePoints_1, 0) AS base_points
-      FROM dbc.spell_lplus
-      WHERE (Attributes & @ATTR_PASSIVE) <> 0
-      UNION ALL
-      SELECT `ID`,
-             2 AS effect_index,
-             IFNULL(EffectAura_2, 0) AS effect_aura,
-             IFNULL(EffectMiscValue_2, 0) AS effect_misc,
-             IFNULL(EffectBasePoints_2, 0) AS base_points
-      FROM dbc.spell_lplus
-      WHERE (Attributes & @ATTR_PASSIVE) <> 0
-      UNION ALL
-      SELECT `ID`,
-             3 AS effect_index,
-             IFNULL(EffectAura_3, 0) AS effect_aura,
-             IFNULL(EffectMiscValue_3, 0) AS effect_misc,
-             IFNULL(EffectBasePoints_3, 0) AS base_points
-      FROM dbc.spell_lplus
-      WHERE (Attributes & @ATTR_PASSIVE) <> 0
-    ) AS slots ON slots.`ID` = tis.spellid;
+  SELECT `ID`,
+         1 AS effect_index,
+         IFNULL(EffectAura_1, 0)  AS effect_aura,
+         IFNULL(EffectMiscValue_1, 0) AS effect_misc,
+         IFNULL(EffectBasePoints_1, 0) AS base_points
+  FROM dbc.spell_lplus
+  UNION ALL
+  SELECT `ID`,
+         2 AS effect_index,
+         IFNULL(EffectAura_2, 0)  AS effect_aura,
+         IFNULL(EffectMiscValue_2, 0) AS effect_misc,
+         IFNULL(EffectBasePoints_2, 0) AS base_points
+  FROM dbc.spell_lplus
+  UNION ALL
+  SELECT `ID`,
+         3 AS effect_index,
+         IFNULL(EffectAura_3, 0)  AS effect_aura,
+         IFNULL(EffectMiscValue_3, 0) AS effect_misc,
+         IFNULL(EffectBasePoints_3, 0) AS base_points
+  FROM dbc.spell_lplus
+) AS slots ON slots.`ID` = tis.spellid;
 
     CREATE TEMPORARY TABLE tmp_item_auras_raw(
       spellid INT UNSIGNED NOT NULL,
@@ -1289,10 +1286,12 @@ proc: BEGIN
 
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_library;
 
+/*
   SELECT p_entry AS entry,
           @ilvl_cur AS ilvl_before,
           p_target_ilvl AS target_ilvl,
           (SELECT CAST(trueItemLevel AS SIGNED) FROM lplusworld.item_template WHERE entry=p_entry) AS ilvl_after;
+		  */
 END proc$$
 
 DELIMITER ;
