@@ -91,6 +91,34 @@ proc:BEGIN
   SET @AURA_MP5 := 85;
   SET @AURA_HP5 := 83;
 
+  DROP TEMPORARY TABLE IF EXISTS tmp_spell_slots;
+  CREATE TEMPORARY TABLE tmp_spell_slots(
+    slot_no TINYINT NOT NULL PRIMARY KEY,
+    spellid INT UNSIGNED NOT NULL,
+    spelltrigger TINYINT NOT NULL,
+    spellcharges INT NOT NULL,
+    spellppmRate DOUBLE NOT NULL,
+    spellcooldown INT NOT NULL,
+    spellcategory INT NOT NULL,
+    spellcategorycooldown INT NOT NULL
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_spell_slots(slot_no, spellid, spelltrigger, spellcharges, spellppmRate, spellcooldown, spellcategory, spellcategorycooldown)
+  SELECT 1, IFNULL(spellid_1,0), IFNULL(spelltrigger_1,0), IFNULL(spellcharges_1,0), IFNULL(spellppmRate_1,0), IFNULL(spellcooldown_1,0), IFNULL(spellcategory_1,0), IFNULL(spellcategorycooldown_1,0)
+  FROM lplusworld.item_template WHERE entry = p_entry
+  UNION ALL
+  SELECT 2, IFNULL(spellid_2,0), IFNULL(spelltrigger_2,0), IFNULL(spellcharges_2,0), IFNULL(spellppmRate_2,0), IFNULL(spellcooldown_2,0), IFNULL(spellcategory_2,0), IFNULL(spellcategorycooldown_2,0)
+  FROM lplusworld.item_template WHERE entry = p_entry
+  UNION ALL
+  SELECT 3, IFNULL(spellid_3,0), IFNULL(spelltrigger_3,0), IFNULL(spellcharges_3,0), IFNULL(spellppmRate_3,0), IFNULL(spellcooldown_3,0), IFNULL(spellcategory_3,0), IFNULL(spellcategorycooldown_3,0)
+  FROM lplusworld.item_template WHERE entry = p_entry
+  UNION ALL
+  SELECT 4, IFNULL(spellid_4,0), IFNULL(spelltrigger_4,0), IFNULL(spellcharges_4,0), IFNULL(spellppmRate_4,0), IFNULL(spellcooldown_4,0), IFNULL(spellcategory_4,0), IFNULL(spellcategorycooldown_4,0)
+  FROM lplusworld.item_template WHERE entry = p_entry
+  UNION ALL
+  SELECT 5, IFNULL(spellid_5,0), IFNULL(spelltrigger_5,0), IFNULL(spellcharges_5,0), IFNULL(spellppmRate_5,0), IFNULL(spellcooldown_5,0), IFNULL(spellcategory_5,0), IFNULL(spellcategorycooldown_5,0)
+  FROM lplusworld.item_template WHERE entry = p_entry;
+
   DROP TEMPORARY TABLE IF EXISTS tmp_stat_catalog;
   CREATE TEMPORARY TABLE tmp_stat_catalog(
     key_code VARCHAR(32) NOT NULL PRIMARY KEY,
@@ -192,40 +220,104 @@ proc:BEGIN
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
   CREATE TEMPORARY TABLE tmp_equip_spells(
     entry INT UNSIGNED NOT NULL,
+    slot_no TINYINT NOT NULL,
     sid   INT UNSIGNED NOT NULL,
-    PRIMARY KEY(entry, sid)
+    PRIMARY KEY(entry, slot_no)
   ) ENGINE=Memory;
 
-  INSERT INTO tmp_equip_spells(entry, sid)
-  SELECT entry, spellid_1
+  INSERT INTO tmp_equip_spells(entry, slot_no, sid)
+  SELECT entry, 1, spellid_1
   FROM lplusworld.item_template
   WHERE entry = p_entry
     AND spellid_1 <> 0
     AND spelltrigger_1 = 1
-  UNION DISTINCT
-  SELECT entry, spellid_2
+  UNION ALL
+  SELECT entry, 2, spellid_2
   FROM lplusworld.item_template
   WHERE entry = p_entry
     AND spellid_2 <> 0
     AND spelltrigger_2 = 1
-  UNION DISTINCT
-  SELECT entry, spellid_3
+  UNION ALL
+  SELECT entry, 3, spellid_3
   FROM lplusworld.item_template
   WHERE entry = p_entry
     AND spellid_3 <> 0
     AND spelltrigger_3 = 1
-  UNION DISTINCT
-  SELECT entry, spellid_4
+  UNION ALL
+  SELECT entry, 4, spellid_4
   FROM lplusworld.item_template
   WHERE entry = p_entry
     AND spellid_4 <> 0
     AND spelltrigger_4 = 1
-  UNION DISTINCT
-  SELECT entry, spellid_5
+  UNION ALL
+  SELECT entry, 5, spellid_5
   FROM lplusworld.item_template
   WHERE entry = p_entry
     AND spellid_5 <> 0
     AND spelltrigger_5 = 1;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_spell_contribs;
+  CREATE TEMPORARY TABLE tmp_spell_contribs(
+    entry INT UNSIGNED NOT NULL,
+    slot_no TINYINT NOT NULL,
+    sid INT UNSIGNED NOT NULL,
+    ap_amt DOUBLE NOT NULL DEFAULT 0,
+    rap_amt DOUBLE NOT NULL DEFAULT 0,
+    sd_all_amt DOUBLE NOT NULL DEFAULT 0,
+    heal_amt DOUBLE NOT NULL DEFAULT 0,
+    mp5_amt DOUBLE NOT NULL DEFAULT 0,
+    hp5_amt DOUBLE NOT NULL DEFAULT 0,
+    PRIMARY KEY(entry, slot_no)
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_spell_contribs(entry, slot_no, sid, ap_amt, rap_amt, sd_all_amt, heal_amt, mp5_amt, hp5_amt)
+  SELECT raw.entry,
+         raw.slot_no,
+         raw.sid,
+         CASE
+           WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN GREATEST(raw.ap_raw, raw.rap_raw)
+           ELSE raw.ap_raw
+         END AS ap_amt,
+         CASE
+           WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN 0
+           ELSE raw.rap_raw
+         END AS rap_amt,
+         raw.sd_all_amt,
+         CASE
+           WHEN raw.sd_all_amt > 0 AND raw.heal_raw > 0 THEN 0
+           ELSE raw.heal_raw
+         END AS heal_amt,
+         raw.mp5_amt,
+         raw.hp5_amt
+  FROM (
+    SELECT es.entry, es.slot_no, es.sid,
+           (CASE
+              WHEN s.EffectAura_1 = @AURA_AP THEN (s.EffectBasePoints_1 + 1)
+              WHEN s.EffectAura_2 = @AURA_AP THEN (s.EffectBasePoints_2 + 1)
+              WHEN s.EffectAura_3 = @AURA_AP THEN (s.EffectBasePoints_3 + 1)
+              ELSE 0
+            END) AS ap_raw,
+           (CASE
+              WHEN s.EffectAura_1 = @AURA_RAP THEN (s.EffectBasePoints_1 + 1)
+              WHEN s.EffectAura_2 = @AURA_RAP THEN (s.EffectBasePoints_2 + 1)
+              WHEN s.EffectAura_3 = @AURA_RAP THEN (s.EffectBasePoints_3 + 1)
+              ELSE 0
+            END) AS rap_raw,
+           ((CASE WHEN s.EffectAura_1 = @AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+            (CASE WHEN s.EffectAura_2 = @AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+            (CASE WHEN s.EffectAura_3 = @AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS sd_all_amt,
+           ((CASE WHEN s.EffectAura_1 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+            (CASE WHEN s.EffectAura_2 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+            (CASE WHEN s.EffectAura_3 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS heal_raw,
+           ((CASE WHEN s.EffectAura_1 = @AURA_MP5 AND s.EffectMiscValue_1 = 0 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+            (CASE WHEN s.EffectAura_2 = @AURA_MP5 AND s.EffectMiscValue_2 = 0 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+            (CASE WHEN s.EffectAura_3 = @AURA_MP5 AND s.EffectMiscValue_3 = 0 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS mp5_amt,
+           ((CASE WHEN s.EffectAura_1 = @AURA_HP5 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+            (CASE WHEN s.EffectAura_2 = @AURA_HP5 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+            (CASE WHEN s.EffectAura_3 = @AURA_HP5 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS hp5_amt
+    FROM tmp_equip_spells es
+    JOIN dbc.spell_lplus s ON s.ID = es.sid
+  ) raw;
 
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_flat;
   CREATE TEMPORARY TABLE tmp_aura_flat(
@@ -239,61 +331,15 @@ proc:BEGIN
   ) ENGINE=Memory;
 
   INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, sd_all_amt, heal_amt, mp5_amt, hp5_amt)
-  SELECT sc.entry,
-         SUM(sc.ap_amt),
-         SUM(sc.rap_amt),
-         SUM(sc.sd_all_amt),
-         SUM(sc.heal_amt),
-         SUM(sc.mp5_amt),
-         SUM(sc.hp5_amt)
-  FROM (
-    SELECT raw.entry, raw.sid,
-           CASE
-             WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN GREATEST(raw.ap_raw, raw.rap_raw)
-             ELSE raw.ap_raw
-           END AS ap_amt,
-           CASE
-             WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN 0
-             ELSE raw.rap_raw
-           END AS rap_amt,
-           raw.sd_all_amt,
-           CASE
-             WHEN raw.sd_all_amt > 0 AND raw.heal_amt > 0 THEN 0
-             ELSE raw.heal_amt
-           END AS heal_amt,
-           raw.mp5_amt,
-           raw.hp5_amt
-    FROM (
-      SELECT es.entry, es.sid,
-             (CASE
-                WHEN s.EffectAura_1 = @AURA_AP THEN (s.EffectBasePoints_1 + 1)
-                WHEN s.EffectAura_2 = @AURA_AP THEN (s.EffectBasePoints_2 + 1)
-                WHEN s.EffectAura_3 = @AURA_AP THEN (s.EffectBasePoints_3 + 1)
-                ELSE 0
-              END) AS ap_raw,
-             (CASE
-                WHEN s.EffectAura_1 = @AURA_RAP THEN (s.EffectBasePoints_1 + 1)
-                WHEN s.EffectAura_2 = @AURA_RAP THEN (s.EffectBasePoints_2 + 1)
-                WHEN s.EffectAura_3 = @AURA_RAP THEN (s.EffectBasePoints_3 + 1)
-                ELSE 0
-              END) AS rap_raw,
-             ((CASE WHEN s.EffectAura_1 = @AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
-              (CASE WHEN s.EffectAura_2 = @AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
-              (CASE WHEN s.EffectAura_3 = @AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS sd_all_amt,
-             ((CASE WHEN s.EffectAura_1 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
-              (CASE WHEN s.EffectAura_2 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
-              (CASE WHEN s.EffectAura_3 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS heal_amt,
-             ((CASE WHEN s.EffectAura_1 = @AURA_MP5 AND s.EffectMiscValue_1 = 0 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
-              (CASE WHEN s.EffectAura_2 = @AURA_MP5 AND s.EffectMiscValue_2 = 0 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
-              (CASE WHEN s.EffectAura_3 = @AURA_MP5 AND s.EffectMiscValue_3 = 0 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS mp5_amt,
-             ((CASE WHEN s.EffectAura_1 = @AURA_HP5 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
-              (CASE WHEN s.EffectAura_2 = @AURA_HP5 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
-              (CASE WHEN s.EffectAura_3 = @AURA_HP5 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS hp5_amt
-      FROM tmp_equip_spells es
-      JOIN dbc.spell_lplus s ON s.ID = es.sid
-    ) raw
-  ) sc
-  GROUP BY sc.entry;
+  SELECT entry,
+         SUM(ap_amt),
+         SUM(rap_amt),
+         SUM(sd_all_amt),
+         SUM(heal_amt),
+         SUM(mp5_amt),
+         SUM(hp5_amt)
+  FROM tmp_spell_contribs
+  GROUP BY entry;
 
   UPDATE tmp_stat_plan p
   LEFT JOIN tmp_aura_flat af ON af.entry = p_entry
@@ -626,14 +672,40 @@ proc:BEGIN
           LEAVE missing_loop;
         END IF;
 
-        SELECT ID
+        SET v_template_id := NULL;
+
+        SELECT sc.sid
           INTO v_template_id
-        FROM dbc.spell_lplus
-        WHERE (IFNULL(EffectAura_1,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_1,0) = v_missing_effect_misc)
-           OR (IFNULL(EffectAura_2,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_2,0) = v_missing_effect_misc)
-           OR (IFNULL(EffectAura_3,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_3,0) = v_missing_effect_misc)
-        ORDER BY ID
+        FROM tmp_spell_contribs sc
+        WHERE sc.entry = p_entry
+          AND ((v_missing_aura_code = 'AP' AND sc.ap_amt > 0)
+            OR (v_missing_aura_code = 'RAP' AND sc.rap_amt > 0)
+            OR (v_missing_aura_code = 'SD_ALL' AND sc.sd_all_amt > 0)
+            OR (v_missing_aura_code = 'HEAL' AND sc.heal_amt > 0)
+            OR (v_missing_aura_code = 'MP5' AND sc.mp5_amt > 0)
+            OR (v_missing_aura_code = 'HP5' AND sc.hp5_amt > 0))
+        ORDER BY sc.slot_no
         LIMIT 1;
+
+        IF v_template_id IS NULL THEN
+          SELECT ID
+            INTO v_template_id
+          FROM dbc.spell_lplus
+          WHERE (IFNULL(EffectAura_1,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_1,0) = v_missing_effect_misc)
+             OR (IFNULL(EffectAura_2,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_2,0) = v_missing_effect_misc)
+             OR (IFNULL(EffectAura_3,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_3,0) = v_missing_effect_misc)
+          ORDER BY CASE
+                     WHEN v_missing_aura_code = 'HEAL' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases healing done by spells and effects by up to $s1%' THEN 0
+                     WHEN v_missing_aura_code = 'SD_ALL' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases damage and healing done by magical spells and effects by up to $s1%' THEN 0
+                     WHEN v_missing_aura_code = 'AP' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases attack power by $s1%' THEN 0
+                     WHEN v_missing_aura_code = 'RAP' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases ranged attack power by $s1%' THEN 0
+                     WHEN v_missing_aura_code = 'MP5' AND IFNULL(Description_Lang_enUS,'') LIKE 'Restores $s1 mana per 5 sec%' THEN 0
+                     WHEN v_missing_aura_code = 'HP5' AND (IFNULL(Description_Lang_enUS,'') LIKE 'Restores $s1 health every 5 sec%' OR IFNULL(Description_Lang_enUS,'') LIKE 'Restores $s1 health per 5 sec%') THEN 0
+                     ELSE 1
+                   END,
+                   ID
+          LIMIT 1;
+        END IF;
 
         IF v_template_id IS NULL THEN
           ITERATE missing_loop;
@@ -669,6 +741,176 @@ proc:BEGIN
     END;
   END IF;
 
+  DROP TEMPORARY TABLE IF EXISTS tmp_slot_tracked;
+  CREATE TEMPORARY TABLE tmp_slot_tracked(
+    slot_no TINYINT NOT NULL PRIMARY KEY
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_slot_tracked(slot_no)
+  SELECT DISTINCT slot_no
+  FROM tmp_spell_contribs
+  WHERE entry = p_entry
+    AND (ap_amt > 0 OR rap_amt > 0 OR sd_all_amt > 0 OR heal_amt > 0 OR mp5_amt > 0 OR hp5_amt > 0);
+
+  IF (SELECT COUNT(*) FROM tmp_slot_tracked) = 0 THEN
+    INSERT INTO tmp_slot_tracked(slot_no)
+    SELECT slot_no
+    FROM tmp_spell_slots
+    WHERE spelltrigger = 1
+    ORDER BY slot_no;
+  END IF;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_slot_available;
+  CREATE TEMPORARY TABLE tmp_slot_available(
+    slot_no TINYINT NOT NULL PRIMARY KEY
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_slot_available(slot_no)
+  SELECT slot_no
+  FROM tmp_slot_tracked;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_stat_slot_plan;
+  CREATE TEMPORARY TABLE tmp_stat_slot_plan(
+    aura_code VARCHAR(32) NOT NULL,
+    slot_no TINYINT,
+    magnitude INT NOT NULL,
+    effect_aura INT NOT NULL,
+    effect_misc INT NOT NULL,
+    PRIMARY KEY(aura_code)
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_stat_slot_plan(aura_code, slot_no, magnitude, effect_aura, effect_misc)
+  SELECT aura_code, NULL, magnitude, effect_aura, effect_misc
+  FROM tmp_aura_requirements;
+
+  BEGIN
+    DECLARE assign_done INT DEFAULT 0;
+    DECLARE v_plan_aura_code VARCHAR(32);
+    DECLARE v_plan_magnitude INT;
+    DECLARE v_plan_effect_aura INT;
+    DECLARE v_plan_effect_misc INT;
+    DECLARE v_plan_slot TINYINT;
+
+    DECLARE cur_plan CURSOR FOR
+      SELECT aura_code, magnitude, effect_aura, effect_misc
+      FROM tmp_stat_slot_plan
+      ORDER BY aura_code;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET assign_done = 1;
+
+    OPEN cur_plan;
+    plan_loop: LOOP
+      FETCH cur_plan INTO v_plan_aura_code, v_plan_magnitude, v_plan_effect_aura, v_plan_effect_misc;
+      IF assign_done = 1 THEN
+        LEAVE plan_loop;
+      END IF;
+
+      SET v_plan_slot := NULL;
+
+      SELECT sc.slot_no
+        INTO v_plan_slot
+      FROM tmp_spell_contribs sc
+      JOIN tmp_slot_available av ON av.slot_no = sc.slot_no
+      WHERE sc.entry = p_entry
+        AND ((v_plan_aura_code = 'AP' AND sc.ap_amt > 0)
+          OR (v_plan_aura_code = 'RAP' AND sc.rap_amt > 0)
+          OR (v_plan_aura_code = 'SD_ALL' AND sc.sd_all_amt > 0)
+          OR (v_plan_aura_code = 'HEAL' AND sc.heal_amt > 0)
+          OR (v_plan_aura_code = 'MP5' AND sc.mp5_amt > 0)
+          OR (v_plan_aura_code = 'HP5' AND sc.hp5_amt > 0))
+      ORDER BY sc.slot_no
+      LIMIT 1;
+
+      IF v_plan_slot IS NULL THEN
+        SELECT slot_no
+          INTO v_plan_slot
+        FROM tmp_slot_available
+        ORDER BY slot_no
+        LIMIT 1;
+      END IF;
+
+      IF v_plan_slot IS NOT NULL THEN
+        UPDATE tmp_stat_slot_plan
+        SET slot_no = v_plan_slot
+        WHERE aura_code = v_plan_aura_code;
+
+        DELETE FROM tmp_slot_available WHERE slot_no = v_plan_slot;
+      END IF;
+    END LOOP plan_loop;
+    CLOSE cur_plan;
+  END;
+
+  BEGIN
+    DECLARE apply_done INT DEFAULT 0;
+    DECLARE v_plan_aura_code VARCHAR(32);
+    DECLARE v_plan_slot TINYINT;
+    DECLARE v_plan_magnitude INT;
+    DECLARE v_plan_effect_aura INT;
+    DECLARE v_plan_effect_misc INT;
+    DECLARE v_new_spellid INT;
+
+    DECLARE cur_apply CURSOR FOR
+      SELECT aura_code, slot_no, magnitude, effect_aura, effect_misc
+      FROM tmp_stat_slot_plan
+      WHERE slot_no IS NOT NULL
+      ORDER BY slot_no;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET apply_done = 1;
+
+    OPEN cur_apply;
+    apply_loop: LOOP
+      FETCH cur_apply INTO v_plan_aura_code, v_plan_slot, v_plan_magnitude, v_plan_effect_aura, v_plan_effect_misc;
+      IF apply_done = 1 THEN
+        LEAVE apply_loop;
+      END IF;
+
+      IF IFNULL(v_plan_magnitude,0) <= 0 THEN
+        ITERATE apply_loop;
+      END IF;
+
+      SET v_new_spellid := NULL;
+
+      SELECT ID
+        INTO v_new_spellid
+      FROM dbc.spell_lplus
+      WHERE (IFNULL(EffectAura_1,0) = v_plan_effect_aura AND IFNULL(EffectMiscValue_1,0) = v_plan_effect_misc AND IFNULL(EffectBasePoints_1,0) = v_plan_magnitude - 1)
+         OR (IFNULL(EffectAura_2,0) = v_plan_effect_aura AND IFNULL(EffectMiscValue_2,0) = v_plan_effect_misc AND IFNULL(EffectBasePoints_2,0) = v_plan_magnitude - 1)
+         OR (IFNULL(EffectAura_3,0) = v_plan_effect_aura AND IFNULL(EffectMiscValue_3,0) = v_plan_effect_misc AND IFNULL(EffectBasePoints_3,0) = v_plan_magnitude - 1)
+      ORDER BY ID
+      LIMIT 1;
+
+      IF v_new_spellid IS NOT NULL THEN
+        UPDATE tmp_spell_slots
+        SET spellid = v_new_spellid,
+            spelltrigger = 1,
+            spellcharges = 0,
+            spellppmRate = 0,
+            spellcooldown = 0,
+            spellcategory = 0,
+            spellcategorycooldown = 0
+        WHERE slot_no = v_plan_slot;
+      END IF;
+    END LOOP apply_loop;
+    CLOSE cur_apply;
+  END;
+
+  UPDATE tmp_spell_slots s
+  LEFT JOIN tmp_stat_slot_plan p ON p.slot_no = s.slot_no
+  LEFT JOIN tmp_slot_tracked st ON st.slot_no = s.slot_no
+  SET s.spellid = 0,
+      s.spelltrigger = 0,
+      s.spellcharges = 0,
+      s.spellppmRate = 0,
+      s.spellcooldown = 0,
+      s.spellcategory = 0,
+      s.spellcategorycooldown = 0
+  WHERE st.slot_no IS NOT NULL
+    AND p.slot_no IS NULL;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_slot_available;
+  DROP TEMPORARY TABLE IF EXISTS tmp_slot_tracked;
+  DROP TEMPORARY TABLE IF EXISTS tmp_stat_slot_plan;
+  DROP TEMPORARY TABLE IF EXISTS tmp_spell_contribs;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_missing;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_requirements;
 
@@ -712,6 +954,45 @@ proc:BEGIN
         MAX(CASE WHEN slot_no=10 THEN stat_value END) AS sv10
       FROM tmp_slots_final
     ) s
+    JOIN (
+      SELECT
+        MAX(CASE WHEN slot_no=1 THEN spellid END) AS spid1,
+        MAX(CASE WHEN slot_no=1 THEN spelltrigger END) AS sptr1,
+        MAX(CASE WHEN slot_no=1 THEN spellcharges END) AS spch1,
+        MAX(CASE WHEN slot_no=1 THEN spellppmRate END) AS sppr1,
+        MAX(CASE WHEN slot_no=1 THEN spellcooldown END) AS spcd1,
+        MAX(CASE WHEN slot_no=1 THEN spellcategory END) AS spcat1,
+        MAX(CASE WHEN slot_no=1 THEN spellcategorycooldown END) AS spcatcd1,
+        MAX(CASE WHEN slot_no=2 THEN spellid END) AS spid2,
+        MAX(CASE WHEN slot_no=2 THEN spelltrigger END) AS sptr2,
+        MAX(CASE WHEN slot_no=2 THEN spellcharges END) AS spch2,
+        MAX(CASE WHEN slot_no=2 THEN spellppmRate END) AS sppr2,
+        MAX(CASE WHEN slot_no=2 THEN spellcooldown END) AS spcd2,
+        MAX(CASE WHEN slot_no=2 THEN spellcategory END) AS spcat2,
+        MAX(CASE WHEN slot_no=2 THEN spellcategorycooldown END) AS spcatcd2,
+        MAX(CASE WHEN slot_no=3 THEN spellid END) AS spid3,
+        MAX(CASE WHEN slot_no=3 THEN spelltrigger END) AS sptr3,
+        MAX(CASE WHEN slot_no=3 THEN spellcharges END) AS spch3,
+        MAX(CASE WHEN slot_no=3 THEN spellppmRate END) AS sppr3,
+        MAX(CASE WHEN slot_no=3 THEN spellcooldown END) AS spcd3,
+        MAX(CASE WHEN slot_no=3 THEN spellcategory END) AS spcat3,
+        MAX(CASE WHEN slot_no=3 THEN spellcategorycooldown END) AS spcatcd3,
+        MAX(CASE WHEN slot_no=4 THEN spellid END) AS spid4,
+        MAX(CASE WHEN slot_no=4 THEN spelltrigger END) AS sptr4,
+        MAX(CASE WHEN slot_no=4 THEN spellcharges END) AS spch4,
+        MAX(CASE WHEN slot_no=4 THEN spellppmRate END) AS sppr4,
+        MAX(CASE WHEN slot_no=4 THEN spellcooldown END) AS spcd4,
+        MAX(CASE WHEN slot_no=4 THEN spellcategory END) AS spcat4,
+        MAX(CASE WHEN slot_no=4 THEN spellcategorycooldown END) AS spcatcd4,
+        MAX(CASE WHEN slot_no=5 THEN spellid END) AS spid5,
+        MAX(CASE WHEN slot_no=5 THEN spelltrigger END) AS sptr5,
+        MAX(CASE WHEN slot_no=5 THEN spellcharges END) AS spch5,
+        MAX(CASE WHEN slot_no=5 THEN spellppmRate END) AS sppr5,
+        MAX(CASE WHEN slot_no=5 THEN spellcooldown END) AS spcd5,
+        MAX(CASE WHEN slot_no=5 THEN spellcategory END) AS spcat5,
+        MAX(CASE WHEN slot_no=5 THEN spellcategorycooldown END) AS spcatcd5
+      FROM tmp_spell_slots
+    ) sp ON 1=1
     SET t.stat_type1 = IFNULL(s.st1,0), t.stat_value1 = IFNULL(s.sv1,0),
         t.stat_type2 = IFNULL(s.st2,0), t.stat_value2 = IFNULL(s.sv2,0),
         t.stat_type3 = IFNULL(s.st3,0), t.stat_value3 = IFNULL(s.sv3,0),
@@ -729,9 +1010,46 @@ proc:BEGIN
         t.frost_res = IFNULL(@res_frost_new,0),
         t.shadow_res = IFNULL(@res_shadow_new,0),
         t.arcane_res = IFNULL(@res_arcane_new,0),
-        t.ArmorDamageModifier = IFNULL(@bonus_armor_new,0)
+        t.ArmorDamageModifier = IFNULL(@bonus_armor_new,0),
+        t.spellid_1 = IFNULL(sp.spid1,0),
+        t.spelltrigger_1 = IFNULL(sp.sptr1,0),
+        t.spellcharges_1 = IFNULL(sp.spch1,0),
+        t.spellppmRate_1 = IFNULL(sp.sppr1,0),
+        t.spellcooldown_1 = IFNULL(sp.spcd1,0),
+        t.spellcategory_1 = IFNULL(sp.spcat1,0),
+        t.spellcategorycooldown_1 = IFNULL(sp.spcatcd1,0),
+        t.spellid_2 = IFNULL(sp.spid2,0),
+        t.spelltrigger_2 = IFNULL(sp.sptr2,0),
+        t.spellcharges_2 = IFNULL(sp.spch2,0),
+        t.spellppmRate_2 = IFNULL(sp.sppr2,0),
+        t.spellcooldown_2 = IFNULL(sp.spcd2,0),
+        t.spellcategory_2 = IFNULL(sp.spcat2,0),
+        t.spellcategorycooldown_2 = IFNULL(sp.spcatcd2,0),
+        t.spellid_3 = IFNULL(sp.spid3,0),
+        t.spelltrigger_3 = IFNULL(sp.sptr3,0),
+        t.spellcharges_3 = IFNULL(sp.spch3,0),
+        t.spellppmRate_3 = IFNULL(sp.sppr3,0),
+        t.spellcooldown_3 = IFNULL(sp.spcd3,0),
+        t.spellcategory_3 = IFNULL(sp.spcat3,0),
+        t.spellcategorycooldown_3 = IFNULL(sp.spcatcd3,0),
+        t.spellid_4 = IFNULL(sp.spid4,0),
+        t.spelltrigger_4 = IFNULL(sp.sptr4,0),
+        t.spellcharges_4 = IFNULL(sp.spch4,0),
+        t.spellppmRate_4 = IFNULL(sp.sppr4,0),
+        t.spellcooldown_4 = IFNULL(sp.spcd4,0),
+        t.spellcategory_4 = IFNULL(sp.spcat4,0),
+        t.spellcategorycooldown_4 = IFNULL(sp.spcatcd4,0),
+        t.spellid_5 = IFNULL(sp.spid5,0),
+        t.spelltrigger_5 = IFNULL(sp.sptr5,0),
+        t.spellcharges_5 = IFNULL(sp.spch5,0),
+        t.spellppmRate_5 = IFNULL(sp.sppr5,0),
+        t.spellcooldown_5 = IFNULL(sp.spcd5,0),
+        t.spellcategory_5 = IFNULL(sp.spcat5,0),
+        t.spellcategorycooldown_5 = IFNULL(sp.spcatcd5,0)
     WHERE t.entry = p_entry;
   END IF;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_spell_slots;
 
   SELECT key_code,
          value_old,
