@@ -76,6 +76,10 @@ proc:BEGIN
   SET @W_HEAL    := 100.0;
   SET @W_SD_ALL  := 192.0;
   SET @W_SD_ONE  := 159.0;
+  SET @W_HIT     := 2200.0;
+  SET @W_SPHIT   := 2500.0;
+  SET @W_CRIT    := 3200.0;
+  SET @W_SPCRIT  := 2600.0;
   SET @W_MP5     :=  550.0;
   SET @W_HP5     :=  550.0;
   SET @W_RESIST  :=  230.0;
@@ -83,6 +87,13 @@ proc:BEGIN
 
   SET @AURA_AP := 99;
   SET @AURA_RAP := 124;
+  SET @AURA_HIT := 54;
+  SET @AURA_SPHIT := 55;
+  SET @AURA_SPCRIT1 := 57;
+  SET @AURA_SPCRIT2 := 71;
+  SET @AURA_CRIT_MELEE := 308;
+  SET @AURA_CRIT_RANGED := 290;
+  SET @AURA_CRIT_GENERIC := 52;
   SET @AURA_SD := 13;
   SET @MASK_SD_ALL := 126;
   SET @AURA_HEAL1 := 115;
@@ -90,6 +101,13 @@ proc:BEGIN
   SET @AURA_HEAL_PRIMARY := @AURA_HEAL2;
   SET @AURA_MP5 := 85;
   SET @AURA_HP5 := 83;
+
+  SET @DESC_HEAL := 'Increases healing done by spells and effects by up to $s1.';
+  SET @DESC_SD_ALL := 'Increases damage and healing done by magical spells and effects by up to $s1.';
+  SET @DESC_CRIT := 'Improves your chance to get a critical strike by $s1%.';
+  SET @DESC_SPHIT := 'Improves your chance to hit with spells by $s1%.';
+  SET @DESC_HIT := 'Improves your chance to hit by $s1%.';
+  SET @DESC_SPCRIT := 'Improves your chance to get a critical strike with spells by $s1%.';
 
   DROP TEMPORARY TABLE IF EXISTS tmp_spell_slots;
   CREATE TEMPORARY TABLE tmp_spell_slots(
@@ -139,6 +157,10 @@ proc:BEGIN
     ('RAP', 39, @W_RAP, 0, NULL, 0),
     ('HEAL', 41, @W_HEAL, 0, NULL, 0),
     ('SD_ALL', 45, @W_SD_ALL, 0, NULL, 0),
+    ('HIT', NULL, @W_HIT, 0, NULL, 0),
+    ('SPHIT', NULL, @W_SPHIT, 0, NULL, 0),
+    ('CRIT', NULL, @W_CRIT, 0, NULL, 0),
+    ('SPCRIT', NULL, @W_SPCRIT, 0, NULL, 0),
     ('MP5', 43, @W_MP5, 0, NULL, 0),
     ('HP5', 46, @W_HP5, 0, NULL, 0),
     ('RES_HOLY', NULL, @W_RESIST, 1, 'holy_res', 0),
@@ -256,6 +278,66 @@ proc:BEGIN
     AND spellid_5 <> 0
     AND spelltrigger_5 = 1;
 
+  UPDATE dbc.spell_lplus s
+  JOIN tmp_equip_spells es ON es.sid = s.ID
+  SET s.Description_Lang_enUS = @DESC_HEAL
+  WHERE IFNULL(s.Description_Lang_enUS,'') <> @DESC_HEAL
+    AND (
+          IFNULL(s.EffectAura_1,0) IN (@AURA_HEAL1, @AURA_HEAL2)
+       OR IFNULL(s.EffectAura_2,0) IN (@AURA_HEAL1, @AURA_HEAL2)
+       OR IFNULL(s.EffectAura_3,0) IN (@AURA_HEAL1, @AURA_HEAL2)
+        );
+
+  UPDATE dbc.spell_lplus s
+  JOIN tmp_equip_spells es ON es.sid = s.ID
+  SET s.Description_Lang_enUS = @DESC_SD_ALL
+  WHERE IFNULL(s.Description_Lang_enUS,'') <> @DESC_SD_ALL
+    AND (
+          (IFNULL(s.EffectAura_1,0) = @AURA_SD AND (IFNULL(s.EffectMiscValue_1,0) & @MASK_SD_ALL) = @MASK_SD_ALL)
+       OR (IFNULL(s.EffectAura_2,0) = @AURA_SD AND (IFNULL(s.EffectMiscValue_2,0) & @MASK_SD_ALL) = @MASK_SD_ALL)
+       OR (IFNULL(s.EffectAura_3,0) = @AURA_SD AND (IFNULL(s.EffectMiscValue_3,0) & @MASK_SD_ALL) = @MASK_SD_ALL)
+        );
+
+  UPDATE dbc.spell_lplus s
+  JOIN tmp_equip_spells es ON es.sid = s.ID
+  SET s.Description_Lang_enUS = @DESC_HIT
+  WHERE IFNULL(s.Description_Lang_enUS,'') <> @DESC_HIT
+    AND (
+          IFNULL(s.EffectAura_1,0) = @AURA_HIT
+       OR IFNULL(s.EffectAura_2,0) = @AURA_HIT
+       OR IFNULL(s.EffectAura_3,0) = @AURA_HIT
+        );
+
+  UPDATE dbc.spell_lplus s
+  JOIN tmp_equip_spells es ON es.sid = s.ID
+  SET s.Description_Lang_enUS = @DESC_SPHIT
+  WHERE IFNULL(s.Description_Lang_enUS,'') <> @DESC_SPHIT
+    AND (
+          IFNULL(s.EffectAura_1,0) = @AURA_SPHIT
+       OR IFNULL(s.EffectAura_2,0) = @AURA_SPHIT
+       OR IFNULL(s.EffectAura_3,0) = @AURA_SPHIT
+        );
+
+  UPDATE dbc.spell_lplus s
+  JOIN tmp_equip_spells es ON es.sid = s.ID
+  SET s.Description_Lang_enUS = @DESC_SPCRIT
+  WHERE IFNULL(s.Description_Lang_enUS,'') <> @DESC_SPCRIT
+    AND (
+          IFNULL(s.EffectAura_1,0) IN (@AURA_SPCRIT1, @AURA_SPCRIT2)
+       OR IFNULL(s.EffectAura_2,0) IN (@AURA_SPCRIT1, @AURA_SPCRIT2)
+       OR IFNULL(s.EffectAura_3,0) IN (@AURA_SPCRIT1, @AURA_SPCRIT2)
+        );
+
+  UPDATE dbc.spell_lplus s
+  JOIN tmp_equip_spells es ON es.sid = s.ID
+  SET s.Description_Lang_enUS = @DESC_CRIT
+  WHERE IFNULL(s.Description_Lang_enUS,'') <> @DESC_CRIT
+    AND (
+          IFNULL(s.EffectAura_1,0) IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED)
+       OR IFNULL(s.EffectAura_2,0) IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED)
+       OR IFNULL(s.EffectAura_3,0) IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED)
+        );
+
   DROP TEMPORARY TABLE IF EXISTS tmp_spell_contribs;
   CREATE TEMPORARY TABLE tmp_spell_contribs(
     entry INT UNSIGNED NOT NULL,
@@ -263,6 +345,18 @@ proc:BEGIN
     sid INT UNSIGNED NOT NULL,
     ap_amt DOUBLE NOT NULL DEFAULT 0,
     rap_amt DOUBLE NOT NULL DEFAULT 0,
+    hit_amt DOUBLE NOT NULL DEFAULT 0,
+    hit_aura INT,
+    hit_misc INT,
+    sphit_amt DOUBLE NOT NULL DEFAULT 0,
+    sphit_aura INT,
+    sphit_misc INT,
+    spcrit_amt DOUBLE NOT NULL DEFAULT 0,
+    spcrit_aura INT,
+    spcrit_misc INT,
+    crit_amt DOUBLE NOT NULL DEFAULT 0,
+    crit_aura INT,
+    crit_misc INT,
     sd_all_amt DOUBLE NOT NULL DEFAULT 0,
     heal_amt DOUBLE NOT NULL DEFAULT 0,
     mp5_amt DOUBLE NOT NULL DEFAULT 0,
@@ -270,7 +364,11 @@ proc:BEGIN
     PRIMARY KEY(entry, slot_no)
   ) ENGINE=Memory;
 
-  INSERT INTO tmp_spell_contribs(entry, slot_no, sid, ap_amt, rap_amt, sd_all_amt, heal_amt, mp5_amt, hp5_amt)
+  INSERT INTO tmp_spell_contribs(entry, slot_no, sid, ap_amt, rap_amt, hit_amt, hit_aura, hit_misc,
+                                 sphit_amt, sphit_aura, sphit_misc,
+                                 spcrit_amt, spcrit_aura, spcrit_misc,
+                                 crit_amt, crit_aura, crit_misc,
+                                 sd_all_amt, heal_amt, mp5_amt, hp5_amt)
   SELECT raw.entry,
          raw.slot_no,
          raw.sid,
@@ -282,6 +380,18 @@ proc:BEGIN
            WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN 0
            ELSE raw.rap_raw
          END AS rap_amt,
+         raw.hit_raw AS hit_amt,
+         raw.hit_aura_raw AS hit_aura,
+         raw.hit_misc_raw AS hit_misc,
+         raw.sphit_raw AS sphit_amt,
+         raw.sphit_aura_raw AS sphit_aura,
+         raw.sphit_misc_raw AS sphit_misc,
+         raw.spcrit_raw AS spcrit_amt,
+         raw.spcrit_aura_raw AS spcrit_aura,
+         raw.spcrit_misc_raw AS spcrit_misc,
+         raw.crit_raw AS crit_amt,
+         raw.crit_aura_raw AS crit_aura,
+         raw.crit_misc_raw AS crit_misc,
          raw.sd_all_amt,
          CASE
            WHEN raw.sd_all_amt > 0 AND raw.heal_raw > 0 THEN 0
@@ -303,18 +413,78 @@ proc:BEGIN
               WHEN s.EffectAura_3 = @AURA_RAP THEN (s.EffectBasePoints_3 + 1)
               ELSE 0
             END) AS rap_raw,
-           ((CASE WHEN s.EffectAura_1 = @AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
-            (CASE WHEN s.EffectAura_2 = @AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
-            (CASE WHEN s.EffectAura_3 = @AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS sd_all_amt,
-           ((CASE WHEN s.EffectAura_1 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
-            (CASE WHEN s.EffectAura_2 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
-            (CASE WHEN s.EffectAura_3 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS heal_raw,
-           ((CASE WHEN s.EffectAura_1 = @AURA_MP5 AND s.EffectMiscValue_1 = 0 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
-            (CASE WHEN s.EffectAura_2 = @AURA_MP5 AND s.EffectMiscValue_2 = 0 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
-            (CASE WHEN s.EffectAura_3 = @AURA_MP5 AND s.EffectMiscValue_3 = 0 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS mp5_amt,
-           ((CASE WHEN s.EffectAura_1 = @AURA_HP5 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
-            (CASE WHEN s.EffectAura_2 = @AURA_HP5 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
-            (CASE WHEN s.EffectAura_3 = @AURA_HP5 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS hp5_amt
+            ((CASE WHEN s.Description_Lang_enUS = @DESC_HIT AND s.EffectAura_1 = @AURA_HIT THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_HIT AND s.EffectAura_2 = @AURA_HIT THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_HIT AND s.EffectAura_3 = @AURA_HIT THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS hit_raw,
+            (CASE
+               WHEN s.Description_Lang_enUS = @DESC_HIT AND s.EffectAura_1 = @AURA_HIT AND (s.EffectBasePoints_1 + 1) > 0 THEN s.EffectAura_1
+               WHEN s.Description_Lang_enUS = @DESC_HIT AND s.EffectAura_2 = @AURA_HIT AND (s.EffectBasePoints_2 + 1) > 0 THEN s.EffectAura_2
+               WHEN s.Description_Lang_enUS = @DESC_HIT AND s.EffectAura_3 = @AURA_HIT AND (s.EffectBasePoints_3 + 1) > 0 THEN s.EffectAura_3
+               ELSE NULL
+             END) AS hit_aura_raw,
+            (CASE
+               WHEN s.Description_Lang_enUS = @DESC_HIT AND s.EffectAura_1 = @AURA_HIT AND (s.EffectBasePoints_1 + 1) > 0 THEN s.EffectMiscValue_1
+               WHEN s.Description_Lang_enUS = @DESC_HIT AND s.EffectAura_2 = @AURA_HIT AND (s.EffectBasePoints_2 + 1) > 0 THEN s.EffectMiscValue_2
+               WHEN s.Description_Lang_enUS = @DESC_HIT AND s.EffectAura_3 = @AURA_HIT AND (s.EffectBasePoints_3 + 1) > 0 THEN s.EffectMiscValue_3
+               ELSE NULL
+             END) AS hit_misc_raw,
+            ((CASE WHEN s.Description_Lang_enUS = @DESC_SPHIT AND s.EffectAura_1 = @AURA_SPHIT THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_SPHIT AND s.EffectAura_2 = @AURA_SPHIT THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_SPHIT AND s.EffectAura_3 = @AURA_SPHIT THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS sphit_raw,
+            (CASE
+               WHEN s.Description_Lang_enUS = @DESC_SPHIT AND s.EffectAura_1 = @AURA_SPHIT AND (s.EffectBasePoints_1 + 1) > 0 THEN s.EffectAura_1
+               WHEN s.Description_Lang_enUS = @DESC_SPHIT AND s.EffectAura_2 = @AURA_SPHIT AND (s.EffectBasePoints_2 + 1) > 0 THEN s.EffectAura_2
+               WHEN s.Description_Lang_enUS = @DESC_SPHIT AND s.EffectAura_3 = @AURA_SPHIT AND (s.EffectBasePoints_3 + 1) > 0 THEN s.EffectAura_3
+               ELSE NULL
+             END) AS sphit_aura_raw,
+            (CASE
+               WHEN s.Description_Lang_enUS = @DESC_SPHIT AND s.EffectAura_1 = @AURA_SPHIT AND (s.EffectBasePoints_1 + 1) > 0 THEN s.EffectMiscValue_1
+               WHEN s.Description_Lang_enUS = @DESC_SPHIT AND s.EffectAura_2 = @AURA_SPHIT AND (s.EffectBasePoints_2 + 1) > 0 THEN s.EffectMiscValue_2
+               WHEN s.Description_Lang_enUS = @DESC_SPHIT AND s.EffectAura_3 = @AURA_SPHIT AND (s.EffectBasePoints_3 + 1) > 0 THEN s.EffectMiscValue_3
+               ELSE NULL
+             END) AS sphit_misc_raw,
+            ((CASE WHEN s.Description_Lang_enUS = @DESC_SPCRIT AND s.EffectAura_1 IN (@AURA_SPCRIT1, @AURA_SPCRIT2) THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_SPCRIT AND s.EffectAura_2 IN (@AURA_SPCRIT1, @AURA_SPCRIT2) THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_SPCRIT AND s.EffectAura_3 IN (@AURA_SPCRIT1, @AURA_SPCRIT2) THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS spcrit_raw,
+            (CASE
+               WHEN s.Description_Lang_enUS = @DESC_SPCRIT AND s.EffectAura_1 IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND (s.EffectBasePoints_1 + 1) > 0 THEN s.EffectAura_1
+               WHEN s.Description_Lang_enUS = @DESC_SPCRIT AND s.EffectAura_2 IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND (s.EffectBasePoints_2 + 1) > 0 THEN s.EffectAura_2
+               WHEN s.Description_Lang_enUS = @DESC_SPCRIT AND s.EffectAura_3 IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND (s.EffectBasePoints_3 + 1) > 0 THEN s.EffectAura_3
+               ELSE NULL
+             END) AS spcrit_aura_raw,
+            (CASE
+               WHEN s.Description_Lang_enUS = @DESC_SPCRIT AND s.EffectAura_1 IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND (s.EffectBasePoints_1 + 1) > 0 THEN s.EffectMiscValue_1
+               WHEN s.Description_Lang_enUS = @DESC_SPCRIT AND s.EffectAura_2 IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND (s.EffectBasePoints_2 + 1) > 0 THEN s.EffectMiscValue_2
+               WHEN s.Description_Lang_enUS = @DESC_SPCRIT AND s.EffectAura_3 IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND (s.EffectBasePoints_3 + 1) > 0 THEN s.EffectMiscValue_3
+               ELSE NULL
+             END) AS spcrit_misc_raw,
+            ((CASE WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_1 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_2 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_3 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS crit_raw,
+            (CASE
+               WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_1 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND (s.EffectBasePoints_1 + 1) > 0 THEN s.EffectAura_1
+               WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_2 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND (s.EffectBasePoints_2 + 1) > 0 THEN s.EffectAura_2
+               WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_3 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND (s.EffectBasePoints_3 + 1) > 0 THEN s.EffectAura_3
+               ELSE NULL
+             END) AS crit_aura_raw,
+            (CASE
+               WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_1 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND (s.EffectBasePoints_1 + 1) > 0 THEN s.EffectMiscValue_1
+               WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_2 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND (s.EffectBasePoints_2 + 1) > 0 THEN s.EffectMiscValue_2
+               WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_3 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND (s.EffectBasePoints_3 + 1) > 0 THEN s.EffectMiscValue_3
+               ELSE NULL
+             END) AS crit_misc_raw,
+            ((CASE WHEN s.Description_Lang_enUS = @DESC_SD_ALL AND s.EffectAura_1 = @AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_SD_ALL AND s.EffectAura_2 = @AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_SD_ALL AND s.EffectAura_3 = @AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS sd_all_amt,
+            ((CASE WHEN s.Description_Lang_enUS = @DESC_HEAL AND s.EffectAura_1 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_HEAL AND s.EffectAura_2 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.Description_Lang_enUS = @DESC_HEAL AND s.EffectAura_3 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS heal_raw,
+            ((CASE WHEN s.EffectAura_1 = @AURA_MP5 AND s.EffectMiscValue_1 = 0 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_2 = @AURA_MP5 AND s.EffectMiscValue_2 = 0 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_3 = @AURA_MP5 AND s.EffectMiscValue_3 = 0 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS mp5_amt,
+            ((CASE WHEN s.EffectAura_1 = @AURA_HP5 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_2 = @AURA_HP5 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_3 = @AURA_HP5 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS hp5_amt
     FROM tmp_equip_spells es
     JOIN dbc.spell_lplus s ON s.ID = es.sid
   ) raw;
@@ -324,16 +494,24 @@ proc:BEGIN
     entry INT UNSIGNED NOT NULL PRIMARY KEY,
     ap_amt DOUBLE NOT NULL DEFAULT 0,
     rap_amt DOUBLE NOT NULL DEFAULT 0,
+    hit_amt DOUBLE NOT NULL DEFAULT 0,
+    sphit_amt DOUBLE NOT NULL DEFAULT 0,
+    spcrit_amt DOUBLE NOT NULL DEFAULT 0,
+    crit_amt DOUBLE NOT NULL DEFAULT 0,
     sd_all_amt DOUBLE NOT NULL DEFAULT 0,
     heal_amt DOUBLE NOT NULL DEFAULT 0,
     mp5_amt DOUBLE NOT NULL DEFAULT 0,
     hp5_amt DOUBLE NOT NULL DEFAULT 0
   ) ENGINE=Memory;
 
-  INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, sd_all_amt, heal_amt, mp5_amt, hp5_amt)
+  INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, hit_amt, sphit_amt, spcrit_amt, crit_amt, sd_all_amt, heal_amt, mp5_amt, hp5_amt)
   SELECT entry,
          SUM(ap_amt),
          SUM(rap_amt),
+         SUM(hit_amt),
+         SUM(sphit_amt),
+         SUM(spcrit_amt),
+         SUM(crit_amt),
          SUM(sd_all_amt),
          SUM(heal_amt),
          SUM(mp5_amt),
@@ -346,13 +524,17 @@ proc:BEGIN
   SET p.value_old = CASE p.key_code
                       WHEN 'AP' THEN p.value_old + IFNULL(af.ap_amt, 0)
                       WHEN 'RAP' THEN p.value_old + IFNULL(af.rap_amt, 0)
+                      WHEN 'HIT' THEN p.value_old + IFNULL(af.hit_amt, 0)
+                      WHEN 'SPHIT' THEN p.value_old + IFNULL(af.sphit_amt, 0)
+                      WHEN 'SPCRIT' THEN p.value_old + IFNULL(af.spcrit_amt, 0)
+                      WHEN 'CRIT' THEN p.value_old + IFNULL(af.crit_amt, 0)
                       WHEN 'SD_ALL' THEN p.value_old + IFNULL(af.sd_all_amt, 0)
                       WHEN 'HEAL' THEN p.value_old + IFNULL(af.heal_amt, 0)
                       WHEN 'MP5' THEN p.value_old + IFNULL(af.mp5_amt, 0)
                       WHEN 'HP5' THEN p.value_old + IFNULL(af.hp5_amt, 0)
                       ELSE p.value_old
                     END
-  WHERE p.key_code IN ('AP','RAP','SD_ALL','HEAL','MP5','HP5');
+  WHERE p.key_code IN ('AP','RAP','HIT','SPHIT','SPCRIT','CRIT','SD_ALL','HEAL','MP5','HP5');
 
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_flat;
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
@@ -603,28 +785,71 @@ proc:BEGIN
     effect_aura INT NOT NULL,
     effect_misc INT NOT NULL,
     magnitude INT NOT NULL,
+    desc_enUS VARCHAR(255),
     PRIMARY KEY(aura_code, magnitude)
   ) ENGINE=Memory;
 
-  INSERT INTO tmp_aura_requirements(aura_code, effect_aura, effect_misc, magnitude)
+  INSERT INTO tmp_aura_requirements(aura_code, effect_aura, effect_misc, magnitude, desc_enUS)
   SELECT key_code,
          CASE key_code
            WHEN 'AP' THEN @AURA_AP
            WHEN 'RAP' THEN @AURA_RAP
+           WHEN 'HIT' THEN COALESCE((SELECT hit_aura FROM tmp_spell_contribs WHERE entry = p_entry AND hit_amt > 0 AND hit_aura IS NOT NULL ORDER BY slot_no LIMIT 1), @AURA_HIT)
+           WHEN 'SPHIT' THEN COALESCE((SELECT sphit_aura FROM tmp_spell_contribs WHERE entry = p_entry AND sphit_amt > 0 AND sphit_aura IS NOT NULL ORDER BY slot_no LIMIT 1), @AURA_SPHIT)
+           WHEN 'SPCRIT' THEN COALESCE((SELECT spcrit_aura FROM tmp_spell_contribs WHERE entry = p_entry AND spcrit_amt > 0 AND spcrit_aura IS NOT NULL ORDER BY slot_no LIMIT 1), @AURA_SPCRIT2)
+           WHEN 'CRIT' THEN COALESCE((SELECT crit_aura FROM tmp_spell_contribs WHERE entry = p_entry AND crit_amt > 0 AND crit_aura IS NOT NULL ORDER BY slot_no LIMIT 1), @AURA_CRIT_GENERIC)
            WHEN 'SD_ALL' THEN @AURA_SD
            WHEN 'HEAL' THEN @AURA_HEAL_PRIMARY
            WHEN 'MP5' THEN @AURA_MP5
            WHEN 'HP5' THEN @AURA_HP5
            ELSE NULL
          END,
-         0,
-         ROUND(GREATEST(0, actual_value))
+         CASE key_code
+           WHEN 'HIT' THEN COALESCE((SELECT hit_misc FROM tmp_spell_contribs WHERE entry = p_entry AND hit_amt > 0 AND hit_misc IS NOT NULL ORDER BY slot_no LIMIT 1), 0)
+           WHEN 'SPHIT' THEN COALESCE((SELECT sphit_misc FROM tmp_spell_contribs WHERE entry = p_entry AND sphit_amt > 0 AND sphit_misc IS NOT NULL ORDER BY slot_no LIMIT 1), 0)
+           WHEN 'SPCRIT' THEN COALESCE((SELECT spcrit_misc FROM tmp_spell_contribs WHERE entry = p_entry AND spcrit_amt > 0 AND spcrit_misc IS NOT NULL ORDER BY slot_no LIMIT 1), 0)
+           WHEN 'CRIT' THEN COALESCE((SELECT crit_misc FROM tmp_spell_contribs WHERE entry = p_entry AND crit_amt > 0 AND crit_misc IS NOT NULL ORDER BY slot_no LIMIT 1), 0)
+           ELSE 0
+         END,
+         ROUND(GREATEST(0, actual_value)),
+         CASE key_code
+           WHEN 'HEAL' THEN @DESC_HEAL
+           WHEN 'SD_ALL' THEN @DESC_SD_ALL
+           WHEN 'HIT' THEN @DESC_HIT
+           WHEN 'SPHIT' THEN @DESC_SPHIT
+           WHEN 'SPCRIT' THEN @DESC_SPCRIT
+           WHEN 'CRIT' THEN @DESC_CRIT
+           ELSE NULL
+         END
   FROM tmp_stat_plan
-  WHERE key_code IN ('AP','RAP','SD_ALL','HEAL','MP5','HP5')
+  WHERE key_code IN ('AP','RAP','HIT','SPHIT','SPCRIT','CRIT','SD_ALL','HEAL','MP5','HP5')
     AND ROUND(GREATEST(0, actual_value)) > 0;
 
   DELETE FROM tmp_aura_requirements
   WHERE effect_aura IS NULL;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_fixup;
+  CREATE TEMPORARY TABLE tmp_aura_fixup(
+    aura_code VARCHAR(32) NOT NULL,
+    spellid INT UNSIGNED NOT NULL,
+    new_desc VARCHAR(255) NOT NULL,
+    PRIMARY KEY(aura_code, spellid)
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_aura_fixup(aura_code, spellid, new_desc)
+  SELECT DISTINCT r.aura_code, s.ID, r.desc_enUS
+  FROM tmp_aura_requirements r
+  JOIN dbc.spell_lplus s ON (
+        (IFNULL(s.EffectAura_1,0) = r.effect_aura AND IFNULL(s.EffectMiscValue_1,0) = r.effect_misc AND IFNULL(s.EffectBasePoints_1,0) + 1 = r.magnitude)
+     OR (IFNULL(s.EffectAura_2,0) = r.effect_aura AND IFNULL(s.EffectMiscValue_2,0) = r.effect_misc AND IFNULL(s.EffectBasePoints_2,0) + 1 = r.magnitude)
+     OR (IFNULL(s.EffectAura_3,0) = r.effect_aura AND IFNULL(s.EffectMiscValue_3,0) = r.effect_misc AND IFNULL(s.EffectBasePoints_3,0) + 1 = r.magnitude)
+  )
+  WHERE r.desc_enUS IS NOT NULL
+    AND IFNULL(s.Description_Lang_enUS,'') <> r.desc_enUS;
+
+  UPDATE dbc.spell_lplus s
+  JOIN tmp_aura_fixup f ON f.spellid = s.ID
+  SET s.Description_Lang_enUS = f.new_desc;
 
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_missing;
   CREATE TEMPORARY TABLE tmp_aura_missing(
@@ -632,18 +857,22 @@ proc:BEGIN
     effect_aura INT NOT NULL,
     effect_misc INT NOT NULL,
     magnitude INT NOT NULL,
+    desc_enUS VARCHAR(255),
     PRIMARY KEY(aura_code, magnitude)
   ) ENGINE=Memory;
 
-  INSERT INTO tmp_aura_missing(aura_code, effect_aura, effect_misc, magnitude)
-  SELECT r.aura_code, r.effect_aura, r.effect_misc, r.magnitude
+  INSERT INTO tmp_aura_missing(aura_code, effect_aura, effect_misc, magnitude, desc_enUS)
+  SELECT r.aura_code, r.effect_aura, r.effect_misc, r.magnitude, r.desc_enUS
   FROM tmp_aura_requirements r
   WHERE NOT EXISTS (
     SELECT 1
     FROM dbc.spell_lplus s
-    WHERE (IFNULL(s.EffectAura_1,0) = r.effect_aura AND IFNULL(s.EffectMiscValue_1,0) = r.effect_misc AND IFNULL(s.EffectBasePoints_1,0) + 1 = r.magnitude)
-       OR (IFNULL(s.EffectAura_2,0) = r.effect_aura AND IFNULL(s.EffectMiscValue_2,0) = r.effect_misc AND IFNULL(s.EffectBasePoints_2,0) + 1 = r.magnitude)
-       OR (IFNULL(s.EffectAura_3,0) = r.effect_aura AND IFNULL(s.EffectMiscValue_3,0) = r.effect_misc AND IFNULL(s.EffectBasePoints_3,0) + 1 = r.magnitude)
+    WHERE (
+           (IFNULL(s.EffectAura_1,0) = r.effect_aura AND IFNULL(s.EffectMiscValue_1,0) = r.effect_misc AND IFNULL(s.EffectBasePoints_1,0) + 1 = r.magnitude)
+        OR (IFNULL(s.EffectAura_2,0) = r.effect_aura AND IFNULL(s.EffectMiscValue_2,0) = r.effect_misc AND IFNULL(s.EffectBasePoints_2,0) + 1 = r.magnitude)
+        OR (IFNULL(s.EffectAura_3,0) = r.effect_aura AND IFNULL(s.EffectMiscValue_3,0) = r.effect_misc AND IFNULL(s.EffectBasePoints_3,0) + 1 = r.magnitude)
+          )
+      AND (r.desc_enUS IS NULL OR IFNULL(s.Description_Lang_enUS,'') = r.desc_enUS)
   );
 
   SET @missing_aura_count := (SELECT COUNT(*) FROM tmp_aura_missing);
@@ -655,10 +884,11 @@ proc:BEGIN
       DECLARE v_missing_effect_aura INT;
       DECLARE v_missing_effect_misc INT;
       DECLARE v_missing_magnitude INT;
+      DECLARE v_missing_desc VARCHAR(255);
       DECLARE v_template_id INT;
       DECLARE v_new_spellid INT;
       DECLARE cur_missing CURSOR FOR
-        SELECT aura_code, effect_aura, effect_misc, magnitude
+        SELECT aura_code, effect_aura, effect_misc, magnitude, desc_enUS
         FROM tmp_aura_missing;
       DECLARE CONTINUE HANDLER FOR NOT FOUND SET missing_done = 1;
 
@@ -667,7 +897,7 @@ proc:BEGIN
 
       OPEN cur_missing;
       missing_loop: LOOP
-        FETCH cur_missing INTO v_missing_aura_code, v_missing_effect_aura, v_missing_effect_misc, v_missing_magnitude;
+        FETCH cur_missing INTO v_missing_aura_code, v_missing_effect_aura, v_missing_effect_misc, v_missing_magnitude, v_missing_desc;
         IF missing_done = 1 THEN
           LEAVE missing_loop;
         END IF;
@@ -680,6 +910,10 @@ proc:BEGIN
         WHERE sc.entry = p_entry
           AND ((v_missing_aura_code = 'AP' AND sc.ap_amt > 0)
             OR (v_missing_aura_code = 'RAP' AND sc.rap_amt > 0)
+            OR (v_missing_aura_code = 'HIT' AND sc.hit_amt > 0)
+            OR (v_missing_aura_code = 'SPHIT' AND sc.sphit_amt > 0)
+            OR (v_missing_aura_code = 'SPCRIT' AND sc.spcrit_amt > 0)
+            OR (v_missing_aura_code = 'CRIT' AND sc.crit_amt > 0)
             OR (v_missing_aura_code = 'SD_ALL' AND sc.sd_all_amt > 0)
             OR (v_missing_aura_code = 'HEAL' AND sc.heal_amt > 0)
             OR (v_missing_aura_code = 'MP5' AND sc.mp5_amt > 0)
@@ -695,13 +929,14 @@ proc:BEGIN
              OR (IFNULL(EffectAura_2,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_2,0) = v_missing_effect_misc)
              OR (IFNULL(EffectAura_3,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_3,0) = v_missing_effect_misc)
           ORDER BY CASE
-                     WHEN v_missing_aura_code = 'HEAL' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases healing done by spells and effects by up to $s1%' THEN 0
-                     WHEN v_missing_aura_code = 'SD_ALL' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases damage and healing done by magical spells and effects by up to $s1%' THEN 0
-                     WHEN v_missing_aura_code = 'AP' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases attack power by $s1%' THEN 0
-                     WHEN v_missing_aura_code = 'RAP' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases ranged attack power by $s1%' THEN 0
-                     WHEN v_missing_aura_code = 'MP5' AND IFNULL(Description_Lang_enUS,'') LIKE 'Restores $s1 mana per 5 sec%' THEN 0
-                     WHEN v_missing_aura_code = 'HP5' AND (IFNULL(Description_Lang_enUS,'') LIKE 'Restores $s1 health every 5 sec%' OR IFNULL(Description_Lang_enUS,'') LIKE 'Restores $s1 health per 5 sec%') THEN 0
-                     ELSE 1
+                     WHEN v_missing_desc IS NOT NULL AND IFNULL(Description_Lang_enUS,'') = v_missing_desc THEN 0
+                     WHEN v_missing_aura_code = 'HEAL' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases healing done by spells and effects by up to $s1%' THEN 1
+                     WHEN v_missing_aura_code = 'SD_ALL' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases damage and healing done by magical spells and effects by up to $s1%' THEN 1
+                     WHEN v_missing_aura_code = 'AP' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases attack power by $s1%' THEN 1
+                     WHEN v_missing_aura_code = 'RAP' AND IFNULL(Description_Lang_enUS,'') LIKE 'Increases ranged attack power by $s1%' THEN 1
+                     WHEN v_missing_aura_code = 'MP5' AND IFNULL(Description_Lang_enUS,'') LIKE 'Restores $s1 mana per 5 sec%' THEN 1
+                     WHEN v_missing_aura_code = 'HP5' AND (IFNULL(Description_Lang_enUS,'') LIKE 'Restores $s1 health every 5 sec%' OR IFNULL(Description_Lang_enUS,'') LIKE 'Restores $s1 health per 5 sec%') THEN 1
+                     ELSE 2
                    END,
                    ID
           LIMIT 1;
@@ -730,7 +965,8 @@ proc:BEGIN
         SET ID = v_new_spellid,
             EffectBasePoints_1 = CASE WHEN IFNULL(EffectAura_1,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_1,0) = v_missing_effect_misc THEN v_missing_magnitude - 1 ELSE EffectBasePoints_1 END,
             EffectBasePoints_2 = CASE WHEN IFNULL(EffectAura_2,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_2,0) = v_missing_effect_misc THEN v_missing_magnitude - 1 ELSE EffectBasePoints_2 END,
-            EffectBasePoints_3 = CASE WHEN IFNULL(EffectAura_3,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_3,0) = v_missing_effect_misc THEN v_missing_magnitude - 1 ELSE EffectBasePoints_3 END;
+            EffectBasePoints_3 = CASE WHEN IFNULL(EffectAura_3,0) = v_missing_effect_aura AND IFNULL(EffectMiscValue_3,0) = v_missing_effect_misc THEN v_missing_magnitude - 1 ELSE EffectBasePoints_3 END,
+            Description_Lang_enUS = CASE WHEN v_missing_desc IS NOT NULL THEN v_missing_desc ELSE Description_Lang_enUS END;
 
         INSERT INTO dbc.spell_lplus
         SELECT * FROM tmp_single_clone;
@@ -750,7 +986,8 @@ proc:BEGIN
   SELECT DISTINCT slot_no
   FROM tmp_spell_contribs
   WHERE entry = p_entry
-    AND (ap_amt > 0 OR rap_amt > 0 OR sd_all_amt > 0 OR heal_amt > 0 OR mp5_amt > 0 OR hp5_amt > 0);
+    AND (ap_amt > 0 OR rap_amt > 0 OR hit_amt > 0 OR sphit_amt > 0 OR spcrit_amt > 0 OR crit_amt > 0
+      OR sd_all_amt > 0 OR heal_amt > 0 OR mp5_amt > 0 OR hp5_amt > 0);
 
   IF (SELECT COUNT(*) FROM tmp_slot_tracked) = 0 THEN
     INSERT INTO tmp_slot_tracked(slot_no)
@@ -814,6 +1051,10 @@ proc:BEGIN
       WHERE sc.entry = p_entry
         AND ((v_plan_aura_code = 'AP' AND sc.ap_amt > 0)
           OR (v_plan_aura_code = 'RAP' AND sc.rap_amt > 0)
+          OR (v_plan_aura_code = 'HIT' AND sc.hit_amt > 0)
+          OR (v_plan_aura_code = 'SPHIT' AND sc.sphit_amt > 0)
+          OR (v_plan_aura_code = 'SPCRIT' AND sc.spcrit_amt > 0)
+          OR (v_plan_aura_code = 'CRIT' AND sc.crit_amt > 0)
           OR (v_plan_aura_code = 'SD_ALL' AND sc.sd_all_amt > 0)
           OR (v_plan_aura_code = 'HEAL' AND sc.heal_amt > 0)
           OR (v_plan_aura_code = 'MP5' AND sc.mp5_amt > 0)
@@ -912,6 +1153,7 @@ proc:BEGIN
   DROP TEMPORARY TABLE IF EXISTS tmp_stat_slot_plan;
   DROP TEMPORARY TABLE IF EXISTS tmp_spell_contribs;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_missing;
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_fixup;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_requirements;
 
   SET @res_holy_new := (SELECT actual_value FROM tmp_stat_plan WHERE key_code='RES_HOLY');
