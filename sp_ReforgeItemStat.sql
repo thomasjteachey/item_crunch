@@ -84,7 +84,10 @@ proc:BEGIN
   SET @AURA_AP := 99;
   SET @AURA_RAP := 124;
   SET @AURA_SD := 13;
-  SET @AURA_HEAL_PRIMARY := 135;
+  SET @MASK_SD_ALL := 126;
+  SET @AURA_HEAL1 := 115;
+  SET @AURA_HEAL2 := 135;
+  SET @AURA_HEAL_PRIMARY := @AURA_HEAL2;
   SET @AURA_MP5 := 85;
   SET @AURA_HP5 := 83;
 
@@ -185,6 +188,127 @@ proc:BEGIN
     ('RES_SHADOW', NULL, @W_RESIST, IFNULL(v_res_shadow,0), 0, 0, 0, 0, 0, 1, 'shadow_res', 0),
     ('RES_ARCANE', NULL, @W_RESIST, IFNULL(v_res_arcane,0), 0, 0, 0, 0, 0, 1, 'arcane_res', 0),
     ('BONUS_ARMOR', NULL, @W_BONUSARMOR, IFNULL(v_bonus_armor,0), 0, 0, 0, 0, 0, 0, 'ArmorDamageModifier', 1);
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
+  CREATE TEMPORARY TABLE tmp_equip_spells(
+    entry INT UNSIGNED NOT NULL,
+    sid   INT UNSIGNED NOT NULL,
+    PRIMARY KEY(entry, sid)
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_equip_spells(entry, sid)
+  SELECT entry, spellid_1
+  FROM lplusworld.item_template
+  WHERE entry = p_entry
+    AND spellid_1 <> 0
+    AND spelltrigger_1 = 1
+  UNION DISTINCT
+  SELECT entry, spellid_2
+  FROM lplusworld.item_template
+  WHERE entry = p_entry
+    AND spellid_2 <> 0
+    AND spelltrigger_2 = 1
+  UNION DISTINCT
+  SELECT entry, spellid_3
+  FROM lplusworld.item_template
+  WHERE entry = p_entry
+    AND spellid_3 <> 0
+    AND spelltrigger_3 = 1
+  UNION DISTINCT
+  SELECT entry, spellid_4
+  FROM lplusworld.item_template
+  WHERE entry = p_entry
+    AND spellid_4 <> 0
+    AND spelltrigger_4 = 1
+  UNION DISTINCT
+  SELECT entry, spellid_5
+  FROM lplusworld.item_template
+  WHERE entry = p_entry
+    AND spellid_5 <> 0
+    AND spelltrigger_5 = 1;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_flat;
+  CREATE TEMPORARY TABLE tmp_aura_flat(
+    entry INT UNSIGNED NOT NULL PRIMARY KEY,
+    ap_amt DOUBLE NOT NULL DEFAULT 0,
+    rap_amt DOUBLE NOT NULL DEFAULT 0,
+    sd_all_amt DOUBLE NOT NULL DEFAULT 0,
+    heal_amt DOUBLE NOT NULL DEFAULT 0,
+    mp5_amt DOUBLE NOT NULL DEFAULT 0,
+    hp5_amt DOUBLE NOT NULL DEFAULT 0
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, sd_all_amt, heal_amt, mp5_amt, hp5_amt)
+  SELECT sc.entry,
+         SUM(sc.ap_amt),
+         SUM(sc.rap_amt),
+         SUM(sc.sd_all_amt),
+         SUM(sc.heal_amt),
+         SUM(sc.mp5_amt),
+         SUM(sc.hp5_amt)
+  FROM (
+    SELECT raw.entry, raw.sid,
+           CASE
+             WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN GREATEST(raw.ap_raw, raw.rap_raw)
+             ELSE raw.ap_raw
+           END AS ap_amt,
+           CASE
+             WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN 0
+             ELSE raw.rap_raw
+           END AS rap_amt,
+           raw.sd_all_amt,
+           CASE
+             WHEN raw.sd_all_amt > 0 AND raw.heal_amt > 0 THEN 0
+             ELSE raw.heal_amt
+           END AS heal_amt,
+           raw.mp5_amt,
+           raw.hp5_amt
+    FROM (
+      SELECT es.entry, es.sid,
+             (CASE
+                WHEN s.EffectAura_1 = @AURA_AP THEN (s.EffectBasePoints_1 + 1)
+                WHEN s.EffectAura_2 = @AURA_AP THEN (s.EffectBasePoints_2 + 1)
+                WHEN s.EffectAura_3 = @AURA_AP THEN (s.EffectBasePoints_3 + 1)
+                ELSE 0
+              END) AS ap_raw,
+             (CASE
+                WHEN s.EffectAura_1 = @AURA_RAP THEN (s.EffectBasePoints_1 + 1)
+                WHEN s.EffectAura_2 = @AURA_RAP THEN (s.EffectBasePoints_2 + 1)
+                WHEN s.EffectAura_3 = @AURA_RAP THEN (s.EffectBasePoints_3 + 1)
+                ELSE 0
+              END) AS rap_raw,
+             ((CASE WHEN s.EffectAura_1 = @AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+              (CASE WHEN s.EffectAura_2 = @AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+              (CASE WHEN s.EffectAura_3 = @AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS sd_all_amt,
+             ((CASE WHEN s.EffectAura_1 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+              (CASE WHEN s.EffectAura_2 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+              (CASE WHEN s.EffectAura_3 IN (@AURA_HEAL1, @AURA_HEAL2) THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS heal_amt,
+             ((CASE WHEN s.EffectAura_1 = @AURA_MP5 AND s.EffectMiscValue_1 = 0 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+              (CASE WHEN s.EffectAura_2 = @AURA_MP5 AND s.EffectMiscValue_2 = 0 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+              (CASE WHEN s.EffectAura_3 = @AURA_MP5 AND s.EffectMiscValue_3 = 0 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS mp5_amt,
+             ((CASE WHEN s.EffectAura_1 = @AURA_HP5 THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+              (CASE WHEN s.EffectAura_2 = @AURA_HP5 THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+              (CASE WHEN s.EffectAura_3 = @AURA_HP5 THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS hp5_amt
+      FROM tmp_equip_spells es
+      JOIN dbc.spell_lplus s ON s.ID = es.sid
+    ) raw
+  ) sc
+  GROUP BY sc.entry;
+
+  UPDATE tmp_stat_plan p
+  SET p.value_old = CASE p.key_code
+                      WHEN 'AP' THEN p.value_old + IFNULL((SELECT af.ap_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
+                      WHEN 'RAP' THEN p.value_old + IFNULL((SELECT af.rap_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
+                      WHEN 'SD_ALL' THEN p.value_old + IFNULL((SELECT af.sd_all_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
+                      WHEN 'HEAL' THEN p.value_old + IFNULL((SELECT af.heal_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
+                      WHEN 'MP5' THEN p.value_old + IFNULL((SELECT af.mp5_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
+                      WHEN 'HP5' THEN p.value_old + IFNULL((SELECT af.hp5_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
+                      ELSE p.value_old
+                    END
+  WHERE p.key_code IN ('AP','RAP','SD_ALL','HEAL','MP5','HP5');
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_flat;
+  DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
 
   IF (SELECT COUNT(*) FROM tmp_stat_plan WHERE key_code = v_source_key) = 0 THEN
     LEAVE proc;
