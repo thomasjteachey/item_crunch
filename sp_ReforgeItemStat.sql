@@ -519,6 +519,35 @@ proc:BEGIN
   FROM tmp_spell_contribs
   GROUP BY entry;
 
+  DROP TEMPORARY TABLE IF EXISTS tmp_spell_defaults;
+  CREATE TEMPORARY TABLE tmp_spell_defaults(
+    entry INT UNSIGNED NOT NULL PRIMARY KEY,
+    hit_aura INT,
+    hit_misc INT,
+    sphit_aura INT,
+    sphit_misc INT,
+    spcrit_aura INT,
+    spcrit_misc INT,
+    crit_aura INT,
+    crit_misc INT
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_spell_defaults(entry, hit_aura, hit_misc, sphit_aura, sphit_misc, spcrit_aura, spcrit_misc, crit_aura, crit_misc)
+  SELECT entry,
+         CAST(NULLIF(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN hit_amt > 0 AND hit_aura IS NOT NULL THEN hit_aura END ORDER BY slot_no SEPARATOR ','), ',', 1), '') AS SIGNED) AS hit_aura,
+         CAST(NULLIF(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN hit_amt > 0 AND hit_misc IS NOT NULL THEN hit_misc END ORDER BY slot_no SEPARATOR ','), ',', 1), '') AS SIGNED) AS hit_misc,
+         CAST(NULLIF(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN sphit_amt > 0 AND sphit_aura IS NOT NULL THEN sphit_aura END ORDER BY slot_no SEPARATOR ','), ',', 1), '') AS SIGNED) AS sphit_aura,
+         CAST(NULLIF(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN sphit_amt > 0 AND sphit_misc IS NOT NULL THEN sphit_misc END ORDER BY slot_no SEPARATOR ','), ',', 1), '') AS SIGNED) AS sphit_misc,
+         CAST(NULLIF(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN spcrit_amt > 0 AND spcrit_aura IS NOT NULL THEN spcrit_aura END ORDER BY slot_no SEPARATOR ','), ',', 1), '') AS SIGNED) AS spcrit_aura,
+         CAST(NULLIF(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN spcrit_amt > 0 AND spcrit_misc IS NOT NULL THEN spcrit_misc END ORDER BY slot_no SEPARATOR ','), ',', 1), '') AS SIGNED) AS spcrit_misc,
+         CAST(NULLIF(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN crit_amt > 0 AND crit_aura IS NOT NULL THEN crit_aura END ORDER BY slot_no SEPARATOR ','), ',', 1), '') AS SIGNED) AS crit_aura,
+         CAST(NULLIF(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN crit_amt > 0 AND crit_misc IS NOT NULL THEN crit_misc END ORDER BY slot_no SEPARATOR ','), ',', 1), '') AS SIGNED) AS crit_misc
+  FROM tmp_spell_contribs
+  GROUP BY entry;
+
+  INSERT IGNORE INTO tmp_spell_defaults(entry)
+  VALUES (p_entry);
+
   UPDATE tmp_stat_plan p
   LEFT JOIN tmp_aura_flat af ON af.entry = p_entry
   SET p.value_old = CASE p.key_code
@@ -790,29 +819,29 @@ proc:BEGIN
   ) ENGINE=Memory;
 
   INSERT INTO tmp_aura_requirements(aura_code, effect_aura, effect_misc, magnitude, desc_enUS)
-  SELECT key_code,
-         CASE key_code
+  SELECT p.key_code,
+         CASE p.key_code
            WHEN 'AP' THEN @AURA_AP
            WHEN 'RAP' THEN @AURA_RAP
-           WHEN 'HIT' THEN COALESCE((SELECT hit_aura FROM tmp_spell_contribs WHERE entry = p_entry AND hit_amt > 0 AND hit_aura IS NOT NULL ORDER BY slot_no LIMIT 1), @AURA_HIT)
-           WHEN 'SPHIT' THEN COALESCE((SELECT sphit_aura FROM tmp_spell_contribs WHERE entry = p_entry AND sphit_amt > 0 AND sphit_aura IS NOT NULL ORDER BY slot_no LIMIT 1), @AURA_SPHIT)
-           WHEN 'SPCRIT' THEN COALESCE((SELECT spcrit_aura FROM tmp_spell_contribs WHERE entry = p_entry AND spcrit_amt > 0 AND spcrit_aura IS NOT NULL ORDER BY slot_no LIMIT 1), @AURA_SPCRIT2)
-           WHEN 'CRIT' THEN COALESCE((SELECT crit_aura FROM tmp_spell_contribs WHERE entry = p_entry AND crit_amt > 0 AND crit_aura IS NOT NULL ORDER BY slot_no LIMIT 1), @AURA_CRIT_GENERIC)
+           WHEN 'HIT' THEN COALESCE(sd.hit_aura, @AURA_HIT)
+           WHEN 'SPHIT' THEN COALESCE(sd.sphit_aura, @AURA_SPHIT)
+           WHEN 'SPCRIT' THEN COALESCE(sd.spcrit_aura, @AURA_SPCRIT2)
+           WHEN 'CRIT' THEN COALESCE(sd.crit_aura, @AURA_CRIT_GENERIC)
            WHEN 'SD_ALL' THEN @AURA_SD
            WHEN 'HEAL' THEN @AURA_HEAL_PRIMARY
            WHEN 'MP5' THEN @AURA_MP5
            WHEN 'HP5' THEN @AURA_HP5
            ELSE NULL
          END,
-         CASE key_code
-           WHEN 'HIT' THEN COALESCE((SELECT hit_misc FROM tmp_spell_contribs WHERE entry = p_entry AND hit_amt > 0 AND hit_misc IS NOT NULL ORDER BY slot_no LIMIT 1), 0)
-           WHEN 'SPHIT' THEN COALESCE((SELECT sphit_misc FROM tmp_spell_contribs WHERE entry = p_entry AND sphit_amt > 0 AND sphit_misc IS NOT NULL ORDER BY slot_no LIMIT 1), 0)
-           WHEN 'SPCRIT' THEN COALESCE((SELECT spcrit_misc FROM tmp_spell_contribs WHERE entry = p_entry AND spcrit_amt > 0 AND spcrit_misc IS NOT NULL ORDER BY slot_no LIMIT 1), 0)
-           WHEN 'CRIT' THEN COALESCE((SELECT crit_misc FROM tmp_spell_contribs WHERE entry = p_entry AND crit_amt > 0 AND crit_misc IS NOT NULL ORDER BY slot_no LIMIT 1), 0)
+         CASE p.key_code
+           WHEN 'HIT' THEN COALESCE(sd.hit_misc, 0)
+           WHEN 'SPHIT' THEN COALESCE(sd.sphit_misc, 0)
+           WHEN 'SPCRIT' THEN COALESCE(sd.spcrit_misc, 0)
+           WHEN 'CRIT' THEN COALESCE(sd.crit_misc, 0)
            ELSE 0
          END,
-         ROUND(GREATEST(0, actual_value)),
-         CASE key_code
+         ROUND(GREATEST(0, p.actual_value)),
+         CASE p.key_code
            WHEN 'HEAL' THEN @DESC_HEAL
            WHEN 'SD_ALL' THEN @DESC_SD_ALL
            WHEN 'HIT' THEN @DESC_HIT
@@ -821,12 +850,15 @@ proc:BEGIN
            WHEN 'CRIT' THEN @DESC_CRIT
            ELSE NULL
          END
-  FROM tmp_stat_plan
+  FROM tmp_stat_plan p
+  LEFT JOIN tmp_spell_defaults sd ON sd.entry = p_entry
   WHERE key_code IN ('AP','RAP','HIT','SPHIT','SPCRIT','CRIT','SD_ALL','HEAL','MP5','HP5')
     AND ROUND(GREATEST(0, actual_value)) > 0;
 
   DELETE FROM tmp_aura_requirements
   WHERE effect_aura IS NULL;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_spell_defaults;
 
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_fixup;
   CREATE TEMPORARY TABLE tmp_aura_fixup(
