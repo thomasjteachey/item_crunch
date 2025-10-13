@@ -239,6 +239,23 @@ proc:BEGIN
     ('RES_ARCANE', NULL, @W_RESIST, IFNULL(v_res_arcane,0), 0, 0, 0, 0, 0, 1, 'arcane_res', 0),
     ('BONUS_ARMOR', NULL, @W_BONUSARMOR, IFNULL(v_bonus_armor,0), 0, 0, 0, 0, 0, 0, 'ArmorDamageModifier', 1);
 
+  INSERT INTO tmp_stat_plan(key_code, stat_type, weight, value_old, desired_value, desired_term, desired_term_new, actual_value,
+ actual_term, is_resist, resist_column, is_bonus)
+  SELECT c.key_code,
+         c.stat_type,
+         c.weight,
+         0,
+         0,
+         0,
+         0,
+         0,
+         0,
+         c.is_resist,
+         c.resist_column,
+         c.is_bonus
+  FROM tmp_stat_catalog c
+  WHERE c.key_code IN ('HIT','SPHIT','CRIT','SPCRIT');
+
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
   CREATE TEMPORARY TABLE tmp_equip_spells(
     entry INT UNSIGNED NOT NULL,
