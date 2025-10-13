@@ -296,13 +296,14 @@ proc:BEGIN
   GROUP BY sc.entry;
 
   UPDATE tmp_stat_plan p
+  LEFT JOIN tmp_aura_flat af ON af.entry = p_entry
   SET p.value_old = CASE p.key_code
-                      WHEN 'AP' THEN p.value_old + IFNULL((SELECT af.ap_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
-                      WHEN 'RAP' THEN p.value_old + IFNULL((SELECT af.rap_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
-                      WHEN 'SD_ALL' THEN p.value_old + IFNULL((SELECT af.sd_all_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
-                      WHEN 'HEAL' THEN p.value_old + IFNULL((SELECT af.heal_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
-                      WHEN 'MP5' THEN p.value_old + IFNULL((SELECT af.mp5_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
-                      WHEN 'HP5' THEN p.value_old + IFNULL((SELECT af.hp5_amt FROM tmp_aura_flat af WHERE af.entry = p_entry), 0)
+                      WHEN 'AP' THEN p.value_old + IFNULL(af.ap_amt, 0)
+                      WHEN 'RAP' THEN p.value_old + IFNULL(af.rap_amt, 0)
+                      WHEN 'SD_ALL' THEN p.value_old + IFNULL(af.sd_all_amt, 0)
+                      WHEN 'HEAL' THEN p.value_old + IFNULL(af.heal_amt, 0)
+                      WHEN 'MP5' THEN p.value_old + IFNULL(af.mp5_amt, 0)
+                      WHEN 'HP5' THEN p.value_old + IFNULL(af.hp5_amt, 0)
                       ELSE p.value_old
                     END
   WHERE p.key_code IN ('AP','RAP','SD_ALL','HEAL','MP5','HP5');
