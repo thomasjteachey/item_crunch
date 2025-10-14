@@ -84,6 +84,8 @@ proc:BEGIN
   SET @W_HP5     :=  550.0;
   SET @W_RESIST  :=  230.0;
   SET @W_BONUSARMOR :=   22.0;
+  SET @W_BLOCKVALUE :=  150.0;
+  SET @W_BLOCKPCT   := 1300.0;
 
   SET @AURA_AP := 99;
   SET @AURA_RAP := 124;
@@ -163,6 +165,8 @@ proc:BEGIN
     ('SPCRIT', NULL, @W_SPCRIT, 0, NULL, 0),
     ('MP5', 43, @W_MP5, 0, NULL, 0),
     ('HP5', 46, @W_HP5, 0, NULL, 0),
+    ('BLOCK_VALUE', 48, @W_BLOCKVALUE, 0, NULL, 0),
+    ('BLOCK_PCT', 15, @W_BLOCKPCT, 0, NULL, 0),
     ('RES_HOLY', NULL, @W_RESIST, 1, 'holy_res', 0),
     ('RES_FIRE', NULL, @W_RESIST, 1, 'fire_res', 0),
     ('RES_NATURE', NULL, @W_RESIST, 1, 'nature_res', 0),
