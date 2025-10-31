@@ -1,3 +1,12 @@
+- chance aura stat weights from 'Item level.docx':
+  - % chance to Block: 1300
+  - % chance to hit: 2200
+  - % chance to hit with all spells: 2500
+  - % chance to Dodge: 2500
+  - % chance to crit with all spells: 2600
+  - % chance to crit: 3200
+  - % chance to Parry: 3600
+
 - sp_ScaleItemToIlvl_SimpleGreedy(entry, target_ilvl, apply, scale_auras)
 - primary stats, resistances, and (optionally) auras (excluding hit/crit percentages) start from the same shared scale factor so everything shrinks or grows together before rounding
   - hit/crit percentages stay fixed; the remaining stats shift around them so the recomputed item level still hits the requested target

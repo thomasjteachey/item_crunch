@@ -15,9 +15,9 @@ BEGIN
   SET @W_SPHIT   := 2500;     -- Spell Hit %
   SET @W_CRIT    := 3200;     -- Melee/Ranged Crit %
   SET @W_SPCRIT  := 2600;     -- Spell Crit %
-  SET @W_BLOCK   := 3200;     -- Block Chance %
-  SET @W_PARRY   := 3200;     -- Parry Chance %
-  SET @W_DODGE   := 3200;     -- Dodge Chance %
+  SET @W_BLOCK   := 1300;     -- Block Chance %
+  SET @W_PARRY   := 3600;     -- Parry Chance %
+  SET @W_DODGE   := 2500;     -- Dodge Chance %
   SET @W_MP5     := 550;      -- Mana per 5s
   SET @W_HP5     := 550;      -- Health per 5s (same budget per your rule)
 

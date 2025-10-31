@@ -80,9 +80,9 @@ proc:BEGIN
   SET @W_SPHIT   := 2500.0;
   SET @W_CRIT    := 3200.0;
   SET @W_SPCRIT  := 2600.0;
-  SET @W_BLOCK   := 3200.0;
-  SET @W_PARRY   := 3200.0;
-  SET @W_DODGE   := 3200.0;
+  SET @W_BLOCK   := 1300.0;
+  SET @W_PARRY   := 3600.0;
+  SET @W_DODGE   := 2500.0;
   SET @W_MP5     :=  550.0;
   SET @W_HP5     :=  550.0;
   SET @W_RESIST  :=  230.0;
