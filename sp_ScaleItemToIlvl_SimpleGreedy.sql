@@ -797,7 +797,7 @@ proc: BEGIN
                   r.effect_misc,
                   r.magnitude,
                  CASE
-                   WHEN r.aura_code IN ('HIT','SPHIT','SPCRIT','CRIT','BLOCKVALUE','BLOCK','PARRY','DODGE','APVERSUS','DEFENSE','WSKILL','WSKILL_DAGGER','DMGSHIELD') THEN r.magnitude
+                  WHEN r.aura_code IN ('HIT','SPHIT','SPCRIT','CRIT','BLOCK','PARRY','DODGE','APVERSUS','DEFENSE','WSKILL','WSKILL_DAGGER','DMGSHIELD') THEN r.magnitude
                    ELSE GREATEST(0, ROUND(r.magnitude * @aura_scale))
                  END AS desired_mag
           FROM tmp_item_auras_raw r
@@ -971,7 +971,7 @@ proc: BEGIN
                   r.effect_misc,
                   r.magnitude,
                  CASE
-                   WHEN r.aura_code IN ('HIT','SPHIT','SPCRIT','CRIT','BLOCKVALUE','BLOCK','PARRY','DODGE','APVERSUS','DEFENSE','WSKILL','WSKILL_DAGGER','DMGSHIELD') THEN r.magnitude
+                  WHEN r.aura_code IN ('HIT','SPHIT','SPCRIT','CRIT','BLOCK','PARRY','DODGE','APVERSUS','DEFENSE','WSKILL','WSKILL_DAGGER','DMGSHIELD') THEN r.magnitude
                    ELSE GREATEST(0, ROUND(r.magnitude * @aura_scale))
                  END AS desired_mag
           FROM tmp_item_auras_raw r

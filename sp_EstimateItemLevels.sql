@@ -7,6 +7,7 @@ BEGIN
   SET @W_RESIST     := 230;   -- per-school resists (holy/fire/nature/frost/shadow/arcane)
 
   SET @W_AP      := 115;      -- Attack Power (AP) only
+  SET @W_AP_VERSUS := 76;     -- Attack Power vs creature types
   SET @W_RAP     := 92;       -- Ranged Attack Power (RAP) only
   SET @W_HEAL    := 100;      -- +Healing (only when NOT a dmg+healing SP line)
   SET @W_SD_ALL  := 192;      -- Spell Power (+damage&healing all schools)
@@ -19,20 +20,30 @@ BEGIN
   SET @W_BLOCK   := 1300;     -- Block Chance %
   SET @W_PARRY   := 3600;     -- Parry Chance %
   SET @W_DODGE   := 2500;     -- Dodge Chance %
+  SET @W_DEFENSE := 345;      -- Defense skill
+  SET @W_WEAPON_SKILL_OTHER := 550;   -- Weapon skill (non-dagger)
+  SET @W_WEAPON_SKILL_DAGGER := 720;  -- Weapon skill (dagger)
+  SET @W_DAMAGE_SHIELD := 720;        -- Damage shield
   SET @W_MP5     := 550;      -- Mana per 5s
   SET @W_HP5     := 550;      -- Health per 5s (same budget per your rule)
 
   /* ===== DBC Auras (Classic) ===== */
   SET @AURA_AP := 99;    SET @AURA_RAP := 124;
+  SET @AURA_AP_VERSUS := 102; SET @AURA_RAP_VERSUS := 131;
   SET @AURA_HIT := 54;   SET @AURA_SPHIT := 55;
   SET @AURA_SPCRIT1 := 57; SET @AURA_SPCRIT2 := 71;
   SET @AURA_CRIT_MELEE := 308; SET @AURA_CRIT_RANGED := 290; SET @AURA_CRIT_GENERIC := 52;
   SET @AURA_BLOCKVALUE := 158; SET @AURA_BLOCKVALUE_PCT := 150;
   SET @AURA_BLOCK := 51; SET @AURA_PARRY := 47; SET @AURA_DODGE := 49;
+  SET @AURA_DAMAGE_SHIELD := 15;
+  SET @AURA_MOD_SKILL := 30; SET @AURA_MOD_SKILL_TALENT := 98;
   SET @AURA_SD := 13;    SET @MASK_SD_ALL := 126;  -- all six schools bitmask
   SET @AURA_HEAL1 := 115; SET @AURA_HEAL2 := 135;  -- +Healing
   SET @AURA_MP5 := 85;   -- Misc=0 => mana regen
   SET @AURA_HP5 := 83;   -- health regen per 5
+
+  SET @SKILL_DEFENSE := 95;
+  SET @SKILL_DAGGERS := 173;
 
   /* ===== Base terms (from item_template) ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_base_terms;
@@ -95,6 +106,7 @@ BEGIN
     entry INT UNSIGNED NOT NULL PRIMARY KEY,
     ap_amt      DOUBLE NOT NULL DEFAULT 0,
     rap_amt     DOUBLE NOT NULL DEFAULT 0,
+    apversus_amt DOUBLE NOT NULL DEFAULT 0,
     hit_amt     DOUBLE NOT NULL DEFAULT 0,
     sphit_amt   DOUBLE NOT NULL DEFAULT 0,
     spcrit_amt  DOUBLE NOT NULL DEFAULT 0,
@@ -103,6 +115,10 @@ BEGIN
     block_amt   DOUBLE NOT NULL DEFAULT 0,
     parry_amt   DOUBLE NOT NULL DEFAULT 0,
     dodge_amt   DOUBLE NOT NULL DEFAULT 0,
+    defense_amt DOUBLE NOT NULL DEFAULT 0,
+    weapon_skill_amt DOUBLE NOT NULL DEFAULT 0,
+    weapon_skill_dagger_amt DOUBLE NOT NULL DEFAULT 0,
+    damage_shield_amt DOUBLE NOT NULL DEFAULT 0,
     sd_all_amt  DOUBLE NOT NULL DEFAULT 0,
     sd_one_amt  DOUBLE NOT NULL DEFAULT 0,
     heal_amt    DOUBLE NOT NULL DEFAULT 0,
@@ -111,12 +127,14 @@ BEGIN
   ) ENGINE=Memory;
 
   /* Per-spell -> per-item sums */
-  INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, hit_amt, sphit_amt, spcrit_amt,
+  INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, apversus_amt, hit_amt, sphit_amt, spcrit_amt,
                             crit_amt, blockvalue_amt, block_amt, parry_amt, dodge_amt,
+                            defense_amt, weapon_skill_amt, weapon_skill_dagger_amt, damage_shield_amt,
                             sd_all_amt, sd_one_amt, heal_amt, mp5_amt, hp5_amt)
   SELECT sc.entry,
          SUM(sc.ap_amt),
          SUM(sc.rap_amt),
+         SUM(sc.apversus_amt),
          SUM(sc.hit_amt),
          SUM(sc.sphit_amt),
          SUM(sc.spcrit_amt),
@@ -125,6 +143,10 @@ BEGIN
          SUM(sc.block_amt),
          SUM(sc.parry_amt),
          SUM(sc.dodge_amt),
+         SUM(sc.defense_amt),
+         SUM(sc.weapon_skill_amt),
+         SUM(sc.weapon_skill_dagger_amt),
+         SUM(sc.damage_shield_amt),
          SUM(sc.sd_all_amt),
          SUM(sc.sd_one_amt),
          SUM(sc.heal_amt),
@@ -140,6 +162,7 @@ BEGIN
              WHEN raw.ap_raw > 0 AND raw.rap_raw > 0 THEN 0
              ELSE raw.rap_raw
            END AS rap_amt,
+           raw.apversus_raw AS apversus_amt,
            raw.hit_amt,
            raw.sphit_amt,
            raw.spcrit_amt,
@@ -148,6 +171,10 @@ BEGIN
            raw.block_raw AS block_amt,
            raw.parry_raw AS parry_amt,
            raw.dodge_raw AS dodge_amt,
+           raw.defense_raw AS defense_amt,
+           raw.weapon_skill_raw AS weapon_skill_amt,
+           raw.weapon_skill_dagger_raw AS weapon_skill_dagger_amt,
+           raw.damage_shield_raw AS damage_shield_amt,
            raw.sd_all_amt,
            raw.sd_one_amt,
            CASE
@@ -171,6 +198,11 @@ BEGIN
            WHEN s.EffectAura_2=@AURA_RAP THEN (s.EffectBasePoints_2+1)
            WHEN s.EffectAura_3=@AURA_RAP THEN (s.EffectBasePoints_3+1)
            ELSE 0 END) AS rap_raw,
+
+        /* Attack Power vs creature types */
+        ((CASE WHEN s.EffectAura_1 IN (@AURA_AP_VERSUS,@AURA_RAP_VERSUS) THEN GREATEST(0, s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2 IN (@AURA_AP_VERSUS,@AURA_RAP_VERSUS) THEN GREATEST(0, s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3 IN (@AURA_AP_VERSUS,@AURA_RAP_VERSUS) THEN GREATEST(0, s.EffectBasePoints_3+1) ELSE 0 END)) AS apversus_raw,
 
         /* %-stats etc (sum if repeated inside spell) */
         ((CASE WHEN s.EffectAura_1=@AURA_HIT   THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
@@ -200,6 +232,46 @@ BEGIN
         ((CASE WHEN s.EffectAura_1=@AURA_DODGE THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_2=@AURA_DODGE THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_3=@AURA_DODGE THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS dodge_raw,
+
+        ((CASE WHEN s.EffectAura_1 IN (@AURA_MOD_SKILL,@AURA_MOD_SKILL_TALENT)
+                 AND IFNULL(s.EffectMiscValue_1, IFNULL(s.EffectMiscValueB_1,0)) = @SKILL_DEFENSE
+               THEN GREATEST(0, s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2 IN (@AURA_MOD_SKILL,@AURA_MOD_SKILL_TALENT)
+                 AND IFNULL(s.EffectMiscValue_2, IFNULL(s.EffectMiscValueB_2,0)) = @SKILL_DEFENSE
+               THEN GREATEST(0, s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3 IN (@AURA_MOD_SKILL,@AURA_MOD_SKILL_TALENT)
+                 AND IFNULL(s.EffectMiscValue_3, IFNULL(s.EffectMiscValueB_3,0)) = @SKILL_DEFENSE
+               THEN GREATEST(0, s.EffectBasePoints_3+1) ELSE 0 END)) AS defense_raw,
+
+        ((CASE WHEN s.EffectAura_1 IN (@AURA_MOD_SKILL,@AURA_MOD_SKILL_TALENT)
+                 AND IFNULL(s.EffectMiscValue_1, IFNULL(s.EffectMiscValueB_1,0)) = @SKILL_DAGGERS
+               THEN GREATEST(0, s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2 IN (@AURA_MOD_SKILL,@AURA_MOD_SKILL_TALENT)
+                 AND IFNULL(s.EffectMiscValue_2, IFNULL(s.EffectMiscValueB_2,0)) = @SKILL_DAGGERS
+               THEN GREATEST(0, s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3 IN (@AURA_MOD_SKILL,@AURA_MOD_SKILL_TALENT)
+                 AND IFNULL(s.EffectMiscValue_3, IFNULL(s.EffectMiscValueB_3,0)) = @SKILL_DAGGERS
+               THEN GREATEST(0, s.EffectBasePoints_3+1) ELSE 0 END)) AS weapon_skill_dagger_raw,
+
+        ((CASE WHEN s.EffectAura_1 IN (@AURA_MOD_SKILL,@AURA_MOD_SKILL_TALENT)
+                 AND IFNULL(s.EffectMiscValue_1, IFNULL(s.EffectMiscValueB_1,0)) IN (43,44,45,46,54,55,136,160,162,172,176,226,228,229,473,475)
+                 AND IFNULL(s.EffectMiscValue_1, IFNULL(s.EffectMiscValueB_1,0)) <> @SKILL_DAGGERS
+                 AND IFNULL(s.EffectMiscValue_1, IFNULL(s.EffectMiscValueB_1,0)) <> @SKILL_DEFENSE
+               THEN GREATEST(0, s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2 IN (@AURA_MOD_SKILL,@AURA_MOD_SKILL_TALENT)
+                 AND IFNULL(s.EffectMiscValue_2, IFNULL(s.EffectMiscValueB_2,0)) IN (43,44,45,46,54,55,136,160,162,172,176,226,228,229,473,475)
+                 AND IFNULL(s.EffectMiscValue_2, IFNULL(s.EffectMiscValueB_2,0)) <> @SKILL_DAGGERS
+                 AND IFNULL(s.EffectMiscValue_2, IFNULL(s.EffectMiscValueB_2,0)) <> @SKILL_DEFENSE
+               THEN GREATEST(0, s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3 IN (@AURA_MOD_SKILL,@AURA_MOD_SKILL_TALENT)
+                 AND IFNULL(s.EffectMiscValue_3, IFNULL(s.EffectMiscValueB_3,0)) IN (43,44,45,46,54,55,136,160,162,172,176,226,228,229,473,475)
+                 AND IFNULL(s.EffectMiscValue_3, IFNULL(s.EffectMiscValueB_3,0)) <> @SKILL_DAGGERS
+                 AND IFNULL(s.EffectMiscValue_3, IFNULL(s.EffectMiscValueB_3,0)) <> @SKILL_DEFENSE
+               THEN GREATEST(0, s.EffectBasePoints_3+1) ELSE 0 END)) AS weapon_skill_raw,
+
+        ((CASE WHEN s.EffectAura_1=@AURA_DAMAGE_SHIELD THEN GREATEST(0, s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_DAMAGE_SHIELD THEN GREATEST(0, s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_DAMAGE_SHIELD THEN GREATEST(0, s.EffectBasePoints_3+1) ELSE 0 END)) AS damage_shield_raw,
 
         /* Spell Power (all schools) vs single-school damage */
         ((CASE WHEN s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
@@ -241,6 +313,7 @@ BEGIN
   SELECT f.entry,
          POW(GREATEST(0, f.ap_amt     * @W_AP),     1.5) +
          POW(GREATEST(0, f.rap_amt    * @W_RAP),    1.5) +
+         POW(GREATEST(0, f.apversus_amt * @W_AP_VERSUS), 1.5) +
          POW(GREATEST(0, f.hit_amt    * @W_HIT),    1.5) +
          POW(GREATEST(0, f.sphit_amt  * @W_SPHIT),  1.5) +
          POW(GREATEST(0, f.spcrit_amt * @W_SPCRIT), 1.5) +
@@ -249,6 +322,10 @@ BEGIN
          POW(GREATEST(0, f.block_amt  * @W_BLOCK),  1.5) +
          POW(GREATEST(0, f.parry_amt  * @W_PARRY),  1.5) +
          POW(GREATEST(0, f.dodge_amt  * @W_DODGE),  1.5) +
+         POW(GREATEST(0, f.defense_amt * @W_DEFENSE), 1.5) +
+         POW(GREATEST(0, f.weapon_skill_amt * @W_WEAPON_SKILL_OTHER), 1.5) +
+         POW(GREATEST(0, f.weapon_skill_dagger_amt * @W_WEAPON_SKILL_DAGGER), 1.5) +
+         POW(GREATEST(0, f.damage_shield_amt * @W_DAMAGE_SHIELD), 1.5) +
          POW(GREATEST(0, f.sd_all_amt * @W_SD_ALL), 1.5) +
          POW(GREATEST(0, f.sd_one_amt * @W_SD_ONE), 1.5) +
          POW(GREATEST(0, f.heal_amt * @W_HEAL), 1.5) +
