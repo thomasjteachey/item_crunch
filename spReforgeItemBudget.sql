@@ -13,6 +13,7 @@ main: BEGIN
   SET @W_HEAL = 100;     SET @W_SD_ALL  = 192; SET @W_SD_ONE = 159;
   SET @W_HIT = 2200;     SET @W_SPHIT   = 2500;
   SET @W_CRIT = 3200;    SET @W_SPCRIT  = 2600;
+  SET @W_BLOCK = 3200;   SET @W_PARRY   = 3200;   SET @W_DODGE = 3200;
   SET @W_MP5 = 550;      SET @W_HP5 = 550;
 
   /* DBC aura ids (Classic) */
@@ -20,6 +21,7 @@ main: BEGIN
   SET @AURA_HIT := 54; SET @AURA_SPHIT := 55;
   SET @AURA_SPCRIT1 := 57; SET @AURA_SPCRIT2 := 71;
   SET @AURA_CRIT_MELEE := 308; SET @AURA_CRIT_RANGED := 290; SET @AURA_CRIT_GENERIC := 52;
+  SET @AURA_BLOCK := 51; SET @AURA_PARRY := 47; SET @AURA_DODGE := 49;
   SET @AURA_SD := 13;  SET @MASK_SD_ALL := 126;
   SET @AURA_MP5 := 85; SET @AURA_HP5 := 83;
 
@@ -66,6 +68,9 @@ main: BEGIN
   SET @rm_CRIT := (SELECT COUNT(*)>0 FROM tmp_tokens_rm WHERE token='CRIT');
   SET @rm_SPHIT := (SELECT COUNT(*)>0 FROM tmp_tokens_rm WHERE token='SPHIT');
   SET @rm_SPCRIT := (SELECT COUNT(*)>0 FROM tmp_tokens_rm WHERE token='SPCRIT');
+  SET @rm_BLOCK := (SELECT COUNT(*)>0 FROM tmp_tokens_rm WHERE token='BLOCK');
+  SET @rm_PARRY := (SELECT COUNT(*)>0 FROM tmp_tokens_rm WHERE token='PARRY');
+  SET @rm_DODGE := (SELECT COUNT(*)>0 FROM tmp_tokens_rm WHERE token='DODGE');
   SET @rm_SDALL := (SELECT COUNT(*)>0 FROM tmp_tokens_rm WHERE token='SDALL');
   SET @rm_SDONE := (SELECT COUNT(*)>0 FROM tmp_tokens_rm WHERE token IN ('SDONE','SDONE_ARC','SDONE_FIR','SDONE_NAT','SDONE_FRO','SDONE_SHA','SDONE_HOL'));
   SET @rm_HEAL := (SELECT COUNT(*)>0 FROM tmp_tokens_rm WHERE token='HEAL');
@@ -140,6 +145,15 @@ main: BEGIN
          SUM(CASE WHEN s.EffectAura_1 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN s.EffectBasePoints_1+1
                   WHEN s.EffectAura_2 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN s.EffectBasePoints_2+1
                   WHEN s.EffectAura_3 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN s.EffectBasePoints_3+1 ELSE 0 END) AS crit_amt,
+         SUM(CASE WHEN s.EffectAura_1=@AURA_BLOCK THEN s.EffectBasePoints_1+1
+                  WHEN s.EffectAura_2=@AURA_BLOCK THEN s.EffectBasePoints_2+1
+                  WHEN s.EffectAura_3=@AURA_BLOCK THEN s.EffectBasePoints_3+1 ELSE 0 END) AS block_amt,
+         SUM(CASE WHEN s.EffectAura_1=@AURA_PARRY THEN s.EffectBasePoints_1+1
+                  WHEN s.EffectAura_2=@AURA_PARRY THEN s.EffectBasePoints_2+1
+                  WHEN s.EffectAura_3=@AURA_PARRY THEN s.EffectBasePoints_3+1 ELSE 0 END) AS parry_amt,
+         SUM(CASE WHEN s.EffectAura_1=@AURA_DODGE THEN s.EffectBasePoints_1+1
+                  WHEN s.EffectAura_2=@AURA_DODGE THEN s.EffectBasePoints_2+1
+                  WHEN s.EffectAura_3=@AURA_DODGE THEN s.EffectBasePoints_3+1 ELSE 0 END) AS dodge_amt,
          SUM(CASE WHEN s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL THEN s.EffectBasePoints_1+1
                   WHEN s.EffectAura_2=@AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL)=@MASK_SD_ALL THEN s.EffectBasePoints_2+1
                   WHEN s.EffectAura_3=@AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL)=@MASK_SD_ALL THEN s.EffectBasePoints_3+1 ELSE 0 END) AS sd_all_amt,
@@ -166,6 +180,9 @@ main: BEGIN
   SET @sphit_amt := IFNULL((SELECT SUM(sphit_amt) FROM tmp_auras),0);
   SET @spcrit_amt:= IFNULL((SELECT SUM(spcrit_amt)FROM tmp_auras),0);
   SET @crit_amt  := IFNULL((SELECT SUM(crit_amt)  FROM tmp_auras),0);
+  SET @block_amt := IFNULL((SELECT SUM(block_amt) FROM tmp_auras),0);
+  SET @parry_amt := IFNULL((SELECT SUM(parry_amt) FROM tmp_auras),0);
+  SET @dodge_amt := IFNULL((SELECT SUM(dodge_amt) FROM tmp_auras),0);
   SET @sd_all_amt:= IFNULL((SELECT SUM(sd_all_amt)FROM tmp_auras),0);
   SET @sd_one_amt:= IFNULL((SELECT SUM(sd_one_amt)FROM tmp_auras),0);
   SET @heal_amt  := IFNULL((SELECT SUM(heal_amt)  FROM tmp_auras),0);
@@ -211,6 +228,9 @@ main: BEGIN
     + POW(IF(@rm_RAP,   @rap_amt,0)    * @W_RAP,   1.5)
     + POW(IF(@rm_HIT,   @hit_amt,0)    * @W_HIT,   1.5)
     + POW(IF(@rm_CRIT,  @crit_amt,0)   * @W_CRIT,  1.5)
+    + POW(IF(@rm_BLOCK, @block_amt,0) * @W_BLOCK, 1.5)
+    + POW(IF(@rm_PARRY, @parry_amt,0) * @W_PARRY, 1.5)
+    + POW(IF(@rm_DODGE, @dodge_amt,0) * @W_DODGE, 1.5)
     + POW(IF(@rm_SPHIT, @sphit_amt,0)  * @W_SPHIT, 1.5)
     + POW(IF(@rm_SPCRIT,@spcrit_amt,0) * @W_SPCRIT,1.5)
     + POW(IF(@rm_SDALL, @sd_all_amt,0) * @W_SD_ALL,1.5)
@@ -221,6 +241,7 @@ main: BEGIN
 
   SET @removedAuraMag :=
       (IF(@rm_AP,@ap_amt,0) + IF(@rm_RAP,@rap_amt,0) + IF(@rm_HIT,@hit_amt,0) + IF(@rm_CRIT,@crit_amt,0) +
+       IF(@rm_BLOCK,@block_amt,0) + IF(@rm_PARRY,@parry_amt,0) + IF(@rm_DODGE,@dodge_amt,0) +
        IF(@rm_SPHIT,@sphit_amt,0) + IF(@rm_SPCRIT,@spcrit_amt,0) + IF(@rm_SDALL,@sd_all_amt,0) +
        IF(@rm_SDONE,@sd_one_amt,0) + IF(@rm_HEAL,@heal_amt,0) + IF(@rm_MP5,@mp5_amt,0) + IF(@rm_HP5,@hp5_amt,0));
 
@@ -245,6 +266,7 @@ main: BEGIN
     ('ARCANE',@W_RESIST,'RESIST'),
     ('AP',@W_AP,'AURA'),('RAP',@W_RAP,'AURA'),
     ('HIT',@W_HIT,'AURA'),('CRIT',@W_CRIT,'AURA'),
+    ('BLOCK',@W_BLOCK,'AURA'),('PARRY',@W_PARRY,'AURA'),('DODGE',@W_DODGE,'AURA'),
     ('SPHIT',@W_SPHIT,'AURA'),('SPCRIT',@W_SPCRIT,'AURA'),
     ('SDALL',@W_SD_ALL,'AURA'),('SDONE',@W_SD_ONE,'AURA'),
     ('HEAL',@W_HEAL,'AURA'),('MP5',@W_MP5,'AURA'),('HP5',@W_HP5,'AURA');
@@ -274,6 +296,9 @@ main: BEGIN
       UNION ALL SELECT 'RAP',   @W_RAP,   'AURA' FROM DUAL WHERE @rm_RAP=0   AND @rap_amt   > 0
       UNION ALL SELECT 'HIT',   @W_HIT,   'AURA' FROM DUAL WHERE @rm_HIT=0   AND @hit_amt   > 0
       UNION ALL SELECT 'CRIT',  @W_CRIT,  'AURA' FROM DUAL WHERE @rm_CRIT=0  AND @crit_amt  > 0
+      UNION ALL SELECT 'BLOCK', @W_BLOCK, 'AURA' FROM DUAL WHERE @rm_BLOCK=0 AND @block_amt > 0
+      UNION ALL SELECT 'PARRY', @W_PARRY, 'AURA' FROM DUAL WHERE @rm_PARRY=0 AND @parry_amt > 0
+      UNION ALL SELECT 'DODGE', @W_DODGE, 'AURA' FROM DUAL WHERE @rm_DODGE=0 AND @dodge_amt > 0
       UNION ALL SELECT 'SPHIT', @W_SPHIT, 'AURA' FROM DUAL WHERE @rm_SPHIT=0 AND @sphit_amt > 0
       UNION ALL SELECT 'SPCRIT',@W_SPCRIT,'AURA' FROM DUAL WHERE @rm_SPCRIT=0 AND @spcrit_amt> 0
       UNION ALL SELECT 'SDALL', @W_SD_ALL,'AURA' FROM DUAL WHERE @rm_SDALL=0 AND @sd_all_amt> 0
@@ -461,6 +486,9 @@ main: BEGIN
           (@rm_CRIT   AND (@AURA_CRIT_MELEE IN (s.EffectAura_1,s.EffectAura_2,s.EffectAura_3)
                         OR  @AURA_CRIT_RANGED IN (s.EffectAura_1,s.EffectAura_2,s.EffectAura_3)
                         OR  @AURA_CRIT_GENERIC IN (s.EffectAura_1,s.EffectAura_2,s.EffectAura_3))) OR
+          (@rm_BLOCK  AND @AURA_BLOCK IN (s.EffectAura_1,s.EffectAura_2,s.EffectAura_3)) OR
+          (@rm_PARRY  AND @AURA_PARRY IN (s.EffectAura_1,s.EffectAura_2,s.EffectAura_3)) OR
+          (@rm_DODGE  AND @AURA_DODGE IN (s.EffectAura_1,s.EffectAura_2,s.EffectAura_3)) OR
           (@rm_SPHIT  AND @AURA_SPHIT IN (s.EffectAura_1,s.EffectAura_2,s.EffectAura_3)) OR
           (@rm_SPCRIT AND (@AURA_SPCRIT1 IN (s.EffectAura_1,s.EffectAura_2,s.EffectAura_3)
                         OR  @AURA_SPCRIT2 IN (s.EffectAura_1,s.EffectAura_2,s.EffectAura_3))) OR

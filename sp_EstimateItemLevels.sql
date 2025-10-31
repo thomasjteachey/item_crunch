@@ -15,6 +15,9 @@ BEGIN
   SET @W_SPHIT   := 2500;     -- Spell Hit %
   SET @W_CRIT    := 3200;     -- Melee/Ranged Crit %
   SET @W_SPCRIT  := 2600;     -- Spell Crit %
+  SET @W_BLOCK   := 3200;     -- Block Chance %
+  SET @W_PARRY   := 3200;     -- Parry Chance %
+  SET @W_DODGE   := 3200;     -- Dodge Chance %
   SET @W_MP5     := 550;      -- Mana per 5s
   SET @W_HP5     := 550;      -- Health per 5s (same budget per your rule)
 
@@ -23,6 +26,7 @@ BEGIN
   SET @AURA_HIT := 54;   SET @AURA_SPHIT := 55;
   SET @AURA_SPCRIT1 := 57; SET @AURA_SPCRIT2 := 71;
   SET @AURA_CRIT_MELEE := 308; SET @AURA_CRIT_RANGED := 290; SET @AURA_CRIT_GENERIC := 52;
+  SET @AURA_BLOCK := 51; SET @AURA_PARRY := 47; SET @AURA_DODGE := 49;
   SET @AURA_SD := 13;    SET @MASK_SD_ALL := 126;  -- all six schools bitmask
   SET @AURA_HEAL1 := 115; SET @AURA_HEAL2 := 135;  -- +Healing
   SET @AURA_MP5 := 85;   -- Misc=0 => mana regen
@@ -93,6 +97,9 @@ BEGIN
     sphit_amt   DOUBLE NOT NULL DEFAULT 0,
     spcrit_amt  DOUBLE NOT NULL DEFAULT 0,
     crit_amt    DOUBLE NOT NULL DEFAULT 0,
+    block_amt   DOUBLE NOT NULL DEFAULT 0,
+    parry_amt   DOUBLE NOT NULL DEFAULT 0,
+    dodge_amt   DOUBLE NOT NULL DEFAULT 0,
     sd_all_amt  DOUBLE NOT NULL DEFAULT 0,
     sd_one_amt  DOUBLE NOT NULL DEFAULT 0,
     heal_amt    DOUBLE NOT NULL DEFAULT 0,
@@ -102,7 +109,8 @@ BEGIN
 
   /* Per-spell -> per-item sums */
   INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, hit_amt, sphit_amt, spcrit_amt,
-                            crit_amt, sd_all_amt, sd_one_amt, heal_amt, mp5_amt, hp5_amt)
+                            crit_amt, block_amt, parry_amt, dodge_amt,
+                            sd_all_amt, sd_one_amt, heal_amt, mp5_amt, hp5_amt)
   SELECT sc.entry,
          SUM(sc.ap_amt),
          SUM(sc.rap_amt),
@@ -110,6 +118,9 @@ BEGIN
          SUM(sc.sphit_amt),
          SUM(sc.spcrit_amt),
          SUM(sc.crit_amt),
+         SUM(sc.block_amt),
+         SUM(sc.parry_amt),
+         SUM(sc.dodge_amt),
          SUM(sc.sd_all_amt),
          SUM(sc.sd_one_amt),
          SUM(sc.heal_amt),
@@ -129,6 +140,9 @@ BEGIN
            raw.sphit_amt,
            raw.spcrit_amt,
            raw.crit_amt,
+           raw.block_raw AS block_amt,
+           raw.parry_raw AS parry_amt,
+           raw.dodge_raw AS dodge_amt,
            raw.sd_all_amt,
            raw.sd_one_amt,
            CASE
@@ -169,6 +183,15 @@ BEGIN
         ((CASE WHEN s.EffectAura_1 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_2 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_3 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS crit_amt,
+        ((CASE WHEN s.EffectAura_1=@AURA_BLOCK THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_BLOCK THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_BLOCK THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS block_raw,
+        ((CASE WHEN s.EffectAura_1=@AURA_PARRY THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_PARRY THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_PARRY THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS parry_raw,
+        ((CASE WHEN s.EffectAura_1=@AURA_DODGE THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_DODGE THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_DODGE THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS dodge_raw,
 
         /* Spell Power (all schools) vs single-school damage */
         ((CASE WHEN s.EffectAura_1=@AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL)=@MASK_SD_ALL THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
@@ -214,6 +237,9 @@ BEGIN
          POW(GREATEST(0, f.sphit_amt  * @W_SPHIT),  1.5) +
          POW(GREATEST(0, f.spcrit_amt * @W_SPCRIT), 1.5) +
          POW(GREATEST(0, f.crit_amt   * @W_CRIT),   1.5) +
+         POW(GREATEST(0, f.block_amt  * @W_BLOCK),  1.5) +
+         POW(GREATEST(0, f.parry_amt  * @W_PARRY),  1.5) +
+         POW(GREATEST(0, f.dodge_amt  * @W_DODGE),  1.5) +
          POW(GREATEST(0, f.sd_all_amt * @W_SD_ALL), 1.5) +
          POW(GREATEST(0, f.sd_one_amt * @W_SD_ONE), 1.5) +
          POW(GREATEST(0, f.heal_amt * @W_HEAL), 1.5) +

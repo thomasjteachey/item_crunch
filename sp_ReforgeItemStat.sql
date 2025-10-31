@@ -80,6 +80,9 @@ proc:BEGIN
   SET @W_SPHIT   := 2500.0;
   SET @W_CRIT    := 3200.0;
   SET @W_SPCRIT  := 2600.0;
+  SET @W_BLOCK   := 3200.0;
+  SET @W_PARRY   := 3200.0;
+  SET @W_DODGE   := 3200.0;
   SET @W_MP5     :=  550.0;
   SET @W_HP5     :=  550.0;
   SET @W_RESIST  :=  230.0;
@@ -94,6 +97,9 @@ proc:BEGIN
   SET @AURA_CRIT_MELEE := 308;
   SET @AURA_CRIT_RANGED := 290;
   SET @AURA_CRIT_GENERIC := 52;
+  SET @AURA_BLOCK := 51;
+  SET @AURA_PARRY := 47;
+  SET @AURA_DODGE := 49;
   SET @AURA_SD := 13;
   SET @MASK_SD_ALL := 126;
   SET @AURA_HEAL1 := 115;
@@ -161,6 +167,9 @@ proc:BEGIN
     ('SPHIT', NULL, @W_SPHIT, 0, NULL, 0),
     ('CRIT', NULL, @W_CRIT, 0, NULL, 0),
     ('SPCRIT', NULL, @W_SPCRIT, 0, NULL, 0),
+    ('BLOCK', NULL, @W_BLOCK, 0, NULL, 0),
+    ('PARRY', NULL, @W_PARRY, 0, NULL, 0),
+    ('DODGE', NULL, @W_DODGE, 0, NULL, 0),
     ('MP5', 43, @W_MP5, 0, NULL, 0),
     ('HP5', 46, @W_HP5, 0, NULL, 0),
     ('RES_HOLY', NULL, @W_RESIST, 1, 'holy_res', 0),
@@ -254,7 +263,7 @@ proc:BEGIN
          c.resist_column,
          c.is_bonus
   FROM tmp_stat_catalog c
-  WHERE c.key_code IN ('HIT','SPHIT','CRIT','SPCRIT');
+  WHERE c.key_code IN ('HIT','SPHIT','CRIT','SPCRIT','BLOCK','PARRY','DODGE');
 
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
   CREATE TEMPORARY TABLE tmp_equip_spells(
@@ -374,6 +383,9 @@ proc:BEGIN
     crit_amt DOUBLE NOT NULL DEFAULT 0,
     crit_aura INT,
     crit_misc INT,
+    block_amt DOUBLE NOT NULL DEFAULT 0,
+    parry_amt DOUBLE NOT NULL DEFAULT 0,
+    dodge_amt DOUBLE NOT NULL DEFAULT 0,
     sd_all_amt DOUBLE NOT NULL DEFAULT 0,
     heal_amt DOUBLE NOT NULL DEFAULT 0,
     mp5_amt DOUBLE NOT NULL DEFAULT 0,
@@ -385,6 +397,7 @@ proc:BEGIN
                                  sphit_amt, sphit_aura, sphit_misc,
                                  spcrit_amt, spcrit_aura, spcrit_misc,
                                  crit_amt, crit_aura, crit_misc,
+                                 block_amt, parry_amt, dodge_amt,
                                  sd_all_amt, heal_amt, mp5_amt, hp5_amt)
   SELECT raw.entry,
          raw.slot_no,
@@ -409,6 +422,9 @@ proc:BEGIN
          raw.crit_raw AS crit_amt,
          raw.crit_aura_raw AS crit_aura,
          raw.crit_misc_raw AS crit_misc,
+         raw.block_raw AS block_amt,
+         raw.parry_raw AS parry_amt,
+         raw.dodge_raw AS dodge_amt,
          raw.sd_all_amt,
          CASE
            WHEN raw.sd_all_amt > 0 AND raw.heal_raw > 0 THEN 0
@@ -490,6 +506,15 @@ proc:BEGIN
                WHEN s.Description_Lang_enUS = @DESC_CRIT AND s.EffectAura_3 IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND (s.EffectBasePoints_3 + 1) > 0 THEN s.EffectMiscValue_3
                ELSE NULL
              END) AS crit_misc_raw,
+            ((CASE WHEN s.EffectAura_1 = @AURA_BLOCK THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_2 = @AURA_BLOCK THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_3 = @AURA_BLOCK THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS block_raw,
+            ((CASE WHEN s.EffectAura_1 = @AURA_PARRY THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_2 = @AURA_PARRY THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_3 = @AURA_PARRY THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS parry_raw,
+            ((CASE WHEN s.EffectAura_1 = @AURA_DODGE THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_2 = @AURA_DODGE THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
+             (CASE WHEN s.EffectAura_3 = @AURA_DODGE THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS dodge_raw,
             ((CASE WHEN s.Description_Lang_enUS = @DESC_SD_ALL AND s.EffectAura_1 = @AURA_SD AND (s.EffectMiscValue_1 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_1 + 1) ELSE 0 END) +
              (CASE WHEN s.Description_Lang_enUS = @DESC_SD_ALL AND s.EffectAura_2 = @AURA_SD AND (s.EffectMiscValue_2 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_2 + 1) ELSE 0 END) +
              (CASE WHEN s.Description_Lang_enUS = @DESC_SD_ALL AND s.EffectAura_3 = @AURA_SD AND (s.EffectMiscValue_3 & @MASK_SD_ALL) = @MASK_SD_ALL THEN (s.EffectBasePoints_3 + 1) ELSE 0 END)) AS sd_all_amt,
@@ -515,13 +540,16 @@ proc:BEGIN
     sphit_amt DOUBLE NOT NULL DEFAULT 0,
     spcrit_amt DOUBLE NOT NULL DEFAULT 0,
     crit_amt DOUBLE NOT NULL DEFAULT 0,
+    block_amt DOUBLE NOT NULL DEFAULT 0,
+    parry_amt DOUBLE NOT NULL DEFAULT 0,
+    dodge_amt DOUBLE NOT NULL DEFAULT 0,
     sd_all_amt DOUBLE NOT NULL DEFAULT 0,
     heal_amt DOUBLE NOT NULL DEFAULT 0,
     mp5_amt DOUBLE NOT NULL DEFAULT 0,
     hp5_amt DOUBLE NOT NULL DEFAULT 0
   ) ENGINE=Memory;
 
-  INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, hit_amt, sphit_amt, spcrit_amt, crit_amt, sd_all_amt, heal_amt, mp5_amt, hp5_amt)
+  INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, hit_amt, sphit_amt, spcrit_amt, crit_amt, block_amt, parry_amt, dodge_amt, sd_all_amt, heal_amt, mp5_amt, hp5_amt)
   SELECT entry,
          SUM(ap_amt),
          SUM(rap_amt),
@@ -529,6 +557,9 @@ proc:BEGIN
          SUM(sphit_amt),
          SUM(spcrit_amt),
          SUM(crit_amt),
+         SUM(block_amt),
+         SUM(parry_amt),
+         SUM(dodge_amt),
          SUM(sd_all_amt),
          SUM(heal_amt),
          SUM(mp5_amt),
@@ -574,13 +605,16 @@ proc:BEGIN
                       WHEN 'SPHIT' THEN p.value_old + IFNULL(af.sphit_amt, 0)
                       WHEN 'SPCRIT' THEN p.value_old + IFNULL(af.spcrit_amt, 0)
                       WHEN 'CRIT' THEN p.value_old + IFNULL(af.crit_amt, 0)
+                      WHEN 'BLOCK' THEN p.value_old + IFNULL(af.block_amt, 0)
+                      WHEN 'PARRY' THEN p.value_old + IFNULL(af.parry_amt, 0)
+                      WHEN 'DODGE' THEN p.value_old + IFNULL(af.dodge_amt, 0)
                       WHEN 'SD_ALL' THEN p.value_old + IFNULL(af.sd_all_amt, 0)
                       WHEN 'HEAL' THEN p.value_old + IFNULL(af.heal_amt, 0)
                       WHEN 'MP5' THEN p.value_old + IFNULL(af.mp5_amt, 0)
                       WHEN 'HP5' THEN p.value_old + IFNULL(af.hp5_amt, 0)
                       ELSE p.value_old
                     END
-  WHERE p.key_code IN ('AP','RAP','HIT','SPHIT','SPCRIT','CRIT','SD_ALL','HEAL','MP5','HP5');
+  WHERE p.key_code IN ('AP','RAP','HIT','SPHIT','SPCRIT','CRIT','BLOCK','PARRY','DODGE','SD_ALL','HEAL','MP5','HP5');
 
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_flat;
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
@@ -844,6 +878,9 @@ proc:BEGIN
            WHEN 'SPHIT' THEN COALESCE(sd.sphit_aura, @AURA_SPHIT)
            WHEN 'SPCRIT' THEN COALESCE(sd.spcrit_aura, @AURA_SPCRIT2)
            WHEN 'CRIT' THEN COALESCE(sd.crit_aura, @AURA_CRIT_GENERIC)
+           WHEN 'BLOCK' THEN @AURA_BLOCK
+           WHEN 'PARRY' THEN @AURA_PARRY
+           WHEN 'DODGE' THEN @AURA_DODGE
            WHEN 'SD_ALL' THEN @AURA_SD
            WHEN 'HEAL' THEN @AURA_HEAL_PRIMARY
            WHEN 'MP5' THEN @AURA_MP5
@@ -869,7 +906,7 @@ proc:BEGIN
          END
   FROM tmp_stat_plan p
   LEFT JOIN tmp_spell_defaults sd ON sd.entry = p_entry
-  WHERE key_code IN ('AP','RAP','HIT','SPHIT','SPCRIT','CRIT','SD_ALL','HEAL','MP5','HP5')
+  WHERE key_code IN ('AP','RAP','HIT','SPHIT','SPCRIT','CRIT','BLOCK','PARRY','DODGE','SD_ALL','HEAL','MP5','HP5')
     AND ROUND(GREATEST(0, actual_value)) > 0;
 
   DELETE FROM tmp_aura_requirements
@@ -963,6 +1000,9 @@ proc:BEGIN
             OR (v_missing_aura_code = 'SPHIT' AND sc.sphit_amt > 0)
             OR (v_missing_aura_code = 'SPCRIT' AND sc.spcrit_amt > 0)
             OR (v_missing_aura_code = 'CRIT' AND sc.crit_amt > 0)
+            OR (v_missing_aura_code = 'BLOCK' AND sc.block_amt > 0)
+            OR (v_missing_aura_code = 'PARRY' AND sc.parry_amt > 0)
+            OR (v_missing_aura_code = 'DODGE' AND sc.dodge_amt > 0)
             OR (v_missing_aura_code = 'SD_ALL' AND sc.sd_all_amt > 0)
             OR (v_missing_aura_code = 'HEAL' AND sc.heal_amt > 0)
             OR (v_missing_aura_code = 'MP5' AND sc.mp5_amt > 0)
@@ -1036,6 +1076,7 @@ proc:BEGIN
   FROM tmp_spell_contribs
   WHERE entry = p_entry
     AND (ap_amt > 0 OR rap_amt > 0 OR hit_amt > 0 OR sphit_amt > 0 OR spcrit_amt > 0 OR crit_amt > 0
+      OR block_amt > 0 OR parry_amt > 0 OR dodge_amt > 0
       OR sd_all_amt > 0 OR heal_amt > 0 OR mp5_amt > 0 OR hp5_amt > 0);
 
   IF (SELECT COUNT(*) FROM tmp_slot_tracked) = 0 THEN
@@ -1104,6 +1145,9 @@ proc:BEGIN
           OR (v_plan_aura_code = 'SPHIT' AND sc.sphit_amt > 0)
           OR (v_plan_aura_code = 'SPCRIT' AND sc.spcrit_amt > 0)
           OR (v_plan_aura_code = 'CRIT' AND sc.crit_amt > 0)
+          OR (v_plan_aura_code = 'BLOCK' AND sc.block_amt > 0)
+          OR (v_plan_aura_code = 'PARRY' AND sc.parry_amt > 0)
+          OR (v_plan_aura_code = 'DODGE' AND sc.dodge_amt > 0)
           OR (v_plan_aura_code = 'SD_ALL' AND sc.sd_all_amt > 0)
           OR (v_plan_aura_code = 'HEAL' AND sc.heal_amt > 0)
           OR (v_plan_aura_code = 'MP5' AND sc.mp5_amt > 0)
