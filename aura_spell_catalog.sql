@@ -1,5 +1,5 @@
 CREATE TABLE `aura_spell_catalog` (
-  `aura_code` enum('AP','RAP','HIT','CRIT','SPHIT','SPCRIT','SDALL','SDONE','SDONE_HOL','SDONE_FIR','SDONE_NAT','SDONE_FRO','SDONE_SHA','SDONE_ARC','HEAL','MP5','HP5') NOT NULL,
+  `aura_code` enum('AP','RAP','HIT','CRIT','BLOCK','BLOCKVALUE','PARRY','DODGE','SPHIT','SPCRIT','SDALL','SDONE','SDONE_HOL','SDONE_FIR','SDONE_NAT','SDONE_FRO','SDONE_SHA','SDONE_ARC','HEAL','MP5','HP5') NOT NULL,
   `magnitude` int NOT NULL,
   `spellid` int unsigned NOT NULL,
   PRIMARY KEY (`aura_code`,`magnitude`)

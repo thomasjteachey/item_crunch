@@ -31,15 +31,34 @@ proc: BEGIN
   SET @W_HEAL    := 100.0;
   SET @W_SD_ALL  := 192.0;
   SET @W_SD_ONE  := 159.0;
+  SET @W_HIT     := 2200.0;
+  SET @W_SPHIT   := 2500.0;
+  SET @W_CRIT    := 3200.0;
+  SET @W_SPCRIT  := 2600.0;
+  SET @W_BLOCKVALUE := 150.0;
+  SET @W_BLOCK   := 1300.0;
+  SET @W_PARRY   := 3600.0;
+  SET @W_DODGE   := 2500.0;
   SET @W_MP5     :=  550.0;
   SET @W_HP5     :=  550.0;
   SET @W_RESIST  :=  230.0;
   SET @W_BONUSARMOR :=   22.0;
 
   SET @AURA_AP := 99;    SET @AURA_RAP := 124;
+  SET @AURA_HIT := 54;   SET @AURA_SPHIT := 55;
+  SET @AURA_SPCRIT1 := 57; SET @AURA_SPCRIT2 := 71;
+  SET @AURA_CRIT_GENERIC := 52;
+  SET @AURA_CRIT_MELEE := 308; SET @AURA_CRIT_RANGED := 290;
+  SET @AURA_BLOCKVALUE := 158; SET @AURA_BLOCKVALUE_PCT := 150;
+  SET @AURA_BLOCK := 51; SET @AURA_PARRY := 47; SET @AURA_DODGE := 49;
   SET @AURA_SD := 13;    SET @MASK_SD_ALL := 126;
   SET @AURA_HEAL1 := 115; SET @AURA_HEAL2 := 135;
   SET @AURA_MP5 := 85;   SET @AURA_HP5 := 83;
+
+  SET @DESC_HIT := 'Improves your chance to hit by $s1%.';
+  SET @DESC_SPHIT := 'Improves your chance to hit with spells by $s1%.';
+  SET @DESC_CRIT := 'Improves your chance to get a critical strike by $s1%.';
+  SET @DESC_SPCRIT := 'Improves your chance to get a critical strike with spells by $s1%.';
 
   SET @ATTR_PASSIVE := 0x00000040;
 
@@ -177,16 +196,18 @@ proc: BEGIN
       effect_index TINYINT NOT NULL,
       effect_aura INT NOT NULL,
       effect_misc INT NOT NULL,
+      effect_desc VARCHAR(255) NOT NULL,
       aura_code VARCHAR(16) DEFAULT NULL,
       magnitude INT DEFAULT NULL,
       PRIMARY KEY(spellid, effect_index)
     ) ENGINE=Memory;
 
-    INSERT INTO tmp_item_aura_candidates(spellid,effect_index,effect_aura,effect_misc,aura_code,magnitude)
+    INSERT INTO tmp_item_aura_candidates(spellid,effect_index,effect_aura,effect_misc,effect_desc,aura_code,magnitude)
     SELECT slots.`ID` AS spellid,
            slots.effect_index,
            slots.effect_aura,
            slots.effect_misc,
+           slots.effect_desc,
            CASE
              WHEN slots.effect_aura = @AURA_AP THEN 'AP'
              WHEN slots.effect_aura = @AURA_RAP THEN 'RAP'
@@ -196,6 +217,14 @@ proc: BEGIN
              WHEN slots.effect_aura IN (@AURA_HEAL1,@AURA_HEAL2) THEN 'HEAL'
              WHEN slots.effect_aura = @AURA_MP5 AND slots.effect_misc = 0 THEN 'MP5'
              WHEN slots.effect_aura = @AURA_HP5 THEN 'HP5'
+             WHEN slots.effect_aura = @AURA_HIT AND slots.effect_desc = @DESC_HIT THEN 'HIT'
+             WHEN slots.effect_aura = @AURA_SPHIT AND slots.effect_desc = @DESC_SPHIT THEN 'SPHIT'
+             WHEN slots.effect_aura IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND slots.effect_desc = @DESC_SPCRIT THEN 'SPCRIT'
+             WHEN slots.effect_aura IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND slots.effect_desc = @DESC_CRIT THEN 'CRIT'
+             WHEN slots.effect_aura IN (@AURA_BLOCKVALUE, @AURA_BLOCKVALUE_PCT) THEN 'BLOCKVALUE'
+             WHEN slots.effect_aura = @AURA_BLOCK THEN 'BLOCK'
+             WHEN slots.effect_aura = @AURA_PARRY THEN 'PARRY'
+             WHEN slots.effect_aura = @AURA_DODGE THEN 'DODGE'
              ELSE NULL
            END AS aura_code,
            CASE
@@ -206,6 +235,14 @@ proc: BEGIN
              WHEN slots.effect_aura IN (@AURA_HEAL1,@AURA_HEAL2) THEN GREATEST(0, slots.base_points + 1)
              WHEN slots.effect_aura = @AURA_MP5 AND slots.effect_misc = 0 THEN GREATEST(0, slots.base_points + 1)
              WHEN slots.effect_aura = @AURA_HP5 THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_HIT AND slots.effect_desc = @DESC_HIT THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_SPHIT AND slots.effect_desc = @DESC_SPHIT THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND slots.effect_desc = @DESC_SPCRIT THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND slots.effect_desc = @DESC_CRIT THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura IN (@AURA_BLOCKVALUE, @AURA_BLOCKVALUE_PCT) THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_BLOCK THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_PARRY THEN GREATEST(0, slots.base_points + 1)
+             WHEN slots.effect_aura = @AURA_DODGE THEN GREATEST(0, slots.base_points + 1)
              ELSE NULL
            END AS magnitude
     FROM tmp_item_spells tis
@@ -214,6 +251,7 @@ proc: BEGIN
          1 AS effect_index,
          IFNULL(EffectAura_1, 0)  AS effect_aura,
          IFNULL(EffectMiscValue_1, 0) AS effect_misc,
+         IFNULL(Description_Lang_enUS, '') AS effect_desc,
          IFNULL(EffectBasePoints_1, 0) AS base_points
   FROM dbc.spell_lplus
   UNION ALL
@@ -221,6 +259,7 @@ proc: BEGIN
          2 AS effect_index,
          IFNULL(EffectAura_2, 0)  AS effect_aura,
          IFNULL(EffectMiscValue_2, 0) AS effect_misc,
+         IFNULL(Description_Lang_enUS, '') AS effect_desc,
          IFNULL(EffectBasePoints_2, 0) AS base_points
   FROM dbc.spell_lplus
   UNION ALL
@@ -228,6 +267,7 @@ proc: BEGIN
          3 AS effect_index,
          IFNULL(EffectAura_3, 0)  AS effect_aura,
          IFNULL(EffectMiscValue_3, 0) AS effect_misc,
+         IFNULL(Description_Lang_enUS, '') AS effect_desc,
          IFNULL(EffectBasePoints_3, 0) AS base_points
   FROM dbc.spell_lplus
 ) AS slots ON slots.`ID` = tis.spellid;
@@ -276,10 +316,24 @@ proc: BEGIN
                WHEN IFNULL(EffectAura_1, 0) IN (@AURA_HEAL1,@AURA_HEAL2) THEN 'HEAL'
                WHEN IFNULL(EffectAura_1, 0) = @AURA_MP5 AND IFNULL(EffectMiscValue_1, 0) = 0 THEN 'MP5'
                WHEN IFNULL(EffectAura_1, 0) = @AURA_HP5 THEN 'HP5'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_HIT AND IFNULL(Description_Lang_enUS, '') = @DESC_HIT THEN 'HIT'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_SPHIT AND IFNULL(Description_Lang_enUS, '') = @DESC_SPHIT THEN 'SPHIT'
+               WHEN IFNULL(EffectAura_1, 0) IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND IFNULL(Description_Lang_enUS, '') = @DESC_SPCRIT THEN 'SPCRIT'
+               WHEN IFNULL(EffectAura_1, 0) IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND IFNULL(Description_Lang_enUS, '') = @DESC_CRIT THEN 'CRIT'
+               WHEN IFNULL(EffectAura_1, 0) IN (@AURA_BLOCKVALUE, @AURA_BLOCKVALUE_PCT) THEN 'BLOCKVALUE'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_BLOCK THEN 'BLOCK'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_PARRY THEN 'PARRY'
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_DODGE THEN 'DODGE'
                ELSE NULL
              END AS aura_code,
              IFNULL(EffectMiscValue_1, 0) AS effect_misc,
-             GREATEST(0, IFNULL(EffectBasePoints_1, 0) + 1) AS magnitude
+             CASE
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_HIT AND IFNULL(Description_Lang_enUS, '') <> @DESC_HIT THEN 0
+               WHEN IFNULL(EffectAura_1, 0) = @AURA_SPHIT AND IFNULL(Description_Lang_enUS, '') <> @DESC_SPHIT THEN 0
+               WHEN IFNULL(EffectAura_1, 0) IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND IFNULL(Description_Lang_enUS, '') <> @DESC_SPCRIT THEN 0
+               WHEN IFNULL(EffectAura_1, 0) IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND IFNULL(Description_Lang_enUS, '') <> @DESC_CRIT THEN 0
+               ELSE GREATEST(0, IFNULL(EffectBasePoints_1, 0) + 1)
+             END AS magnitude
       FROM dbc.spell_lplus
       WHERE (Attributes & @ATTR_PASSIVE) <> 0
       UNION ALL
@@ -294,10 +348,24 @@ proc: BEGIN
                WHEN IFNULL(EffectAura_2, 0) IN (@AURA_HEAL1,@AURA_HEAL2) THEN 'HEAL'
                WHEN IFNULL(EffectAura_2, 0) = @AURA_MP5 AND IFNULL(EffectMiscValue_2, 0) = 0 THEN 'MP5'
                WHEN IFNULL(EffectAura_2, 0) = @AURA_HP5 THEN 'HP5'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_HIT AND IFNULL(Description_Lang_enUS, '') = @DESC_HIT THEN 'HIT'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_SPHIT AND IFNULL(Description_Lang_enUS, '') = @DESC_SPHIT THEN 'SPHIT'
+               WHEN IFNULL(EffectAura_2, 0) IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND IFNULL(Description_Lang_enUS, '') = @DESC_SPCRIT THEN 'SPCRIT'
+               WHEN IFNULL(EffectAura_2, 0) IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND IFNULL(Description_Lang_enUS, '') = @DESC_CRIT THEN 'CRIT'
+               WHEN IFNULL(EffectAura_2, 0) IN (@AURA_BLOCKVALUE, @AURA_BLOCKVALUE_PCT) THEN 'BLOCKVALUE'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_BLOCK THEN 'BLOCK'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_PARRY THEN 'PARRY'
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_DODGE THEN 'DODGE'
                ELSE NULL
              END AS aura_code,
              IFNULL(EffectMiscValue_2, 0) AS effect_misc,
-             GREATEST(0, IFNULL(EffectBasePoints_2, 0) + 1) AS magnitude
+             CASE
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_HIT AND IFNULL(Description_Lang_enUS, '') <> @DESC_HIT THEN 0
+               WHEN IFNULL(EffectAura_2, 0) = @AURA_SPHIT AND IFNULL(Description_Lang_enUS, '') <> @DESC_SPHIT THEN 0
+               WHEN IFNULL(EffectAura_2, 0) IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND IFNULL(Description_Lang_enUS, '') <> @DESC_SPCRIT THEN 0
+               WHEN IFNULL(EffectAura_2, 0) IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND IFNULL(Description_Lang_enUS, '') <> @DESC_CRIT THEN 0
+               ELSE GREATEST(0, IFNULL(EffectBasePoints_2, 0) + 1)
+             END AS magnitude
       FROM dbc.spell_lplus
       WHERE (Attributes & @ATTR_PASSIVE) <> 0
       UNION ALL
@@ -312,10 +380,24 @@ proc: BEGIN
                WHEN IFNULL(EffectAura_3, 0) IN (@AURA_HEAL1,@AURA_HEAL2) THEN 'HEAL'
                WHEN IFNULL(EffectAura_3, 0) = @AURA_MP5 AND IFNULL(EffectMiscValue_3, 0) = 0 THEN 'MP5'
                WHEN IFNULL(EffectAura_3, 0) = @AURA_HP5 THEN 'HP5'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_HIT AND IFNULL(Description_Lang_enUS, '') = @DESC_HIT THEN 'HIT'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_SPHIT AND IFNULL(Description_Lang_enUS, '') = @DESC_SPHIT THEN 'SPHIT'
+               WHEN IFNULL(EffectAura_3, 0) IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND IFNULL(Description_Lang_enUS, '') = @DESC_SPCRIT THEN 'SPCRIT'
+               WHEN IFNULL(EffectAura_3, 0) IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND IFNULL(Description_Lang_enUS, '') = @DESC_CRIT THEN 'CRIT'
+               WHEN IFNULL(EffectAura_3, 0) IN (@AURA_BLOCKVALUE, @AURA_BLOCKVALUE_PCT) THEN 'BLOCKVALUE'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_BLOCK THEN 'BLOCK'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_PARRY THEN 'PARRY'
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_DODGE THEN 'DODGE'
                ELSE NULL
              END AS aura_code,
              IFNULL(EffectMiscValue_3, 0) AS effect_misc,
-             GREATEST(0, IFNULL(EffectBasePoints_3, 0) + 1) AS magnitude
+             CASE
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_HIT AND IFNULL(Description_Lang_enUS, '') <> @DESC_HIT THEN 0
+               WHEN IFNULL(EffectAura_3, 0) = @AURA_SPHIT AND IFNULL(Description_Lang_enUS, '') <> @DESC_SPHIT THEN 0
+               WHEN IFNULL(EffectAura_3, 0) IN (@AURA_SPCRIT1, @AURA_SPCRIT2) AND IFNULL(Description_Lang_enUS, '') <> @DESC_SPCRIT THEN 0
+               WHEN IFNULL(EffectAura_3, 0) IN (@AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED) AND IFNULL(Description_Lang_enUS, '') <> @DESC_CRIT THEN 0
+               ELSE GREATEST(0, IFNULL(EffectBasePoints_3, 0) + 1)
+             END AS magnitude
       FROM dbc.spell_lplus
       WHERE (Attributes & @ATTR_PASSIVE) <> 0
     ) AS slots
@@ -339,7 +421,15 @@ proc: BEGIN
       SELECT COUNT(*)
       FROM tmp_item_aura_candidates
       WHERE aura_code IS NULL
-        AND effect_aura IN (@AURA_AP, @AURA_RAP, @AURA_SD, @AURA_HEAL1, @AURA_HEAL2, @AURA_MP5, @AURA_HP5)
+        AND effect_aura IN (
+              @AURA_AP, @AURA_RAP,
+              @AURA_SD,
+              @AURA_HEAL1, @AURA_HEAL2,
+              @AURA_MP5, @AURA_HP5,
+              @AURA_HIT, @AURA_SPHIT,
+              @AURA_SPCRIT1, @AURA_SPCRIT2,
+              @AURA_CRIT_GENERIC, @AURA_CRIT_MELEE, @AURA_CRIT_RANGED,
+              @AURA_BLOCK, @AURA_PARRY, @AURA_DODGE)
     );
 
     IF @item_spell_count > 0 THEN
@@ -392,10 +482,18 @@ proc: BEGIN
       sd_one DOUBLE NOT NULL,
       heal DOUBLE NOT NULL,
       mp5 DOUBLE NOT NULL,
-      hp5 DOUBLE NOT NULL
+      hp5 DOUBLE NOT NULL,
+      hit DOUBLE NOT NULL,
+      sphit DOUBLE NOT NULL,
+      spcrit DOUBLE NOT NULL,
+      crit DOUBLE NOT NULL,
+      blockvalue DOUBLE NOT NULL,
+      block DOUBLE NOT NULL,
+      parry DOUBLE NOT NULL,
+      dodge DOUBLE NOT NULL
     ) ENGINE=Memory;
 
-    INSERT INTO tmp_item_aura_totals(spellid, ap, rap, sd_all, sd_one, heal, mp5, hp5)
+    INSERT INTO tmp_item_aura_totals(spellid, ap, rap, sd_all, sd_one, heal, mp5, hp5, hit, sphit, spcrit, crit, blockvalue, block, parry, dodge)
     SELECT sums.spellid,
            CASE
              WHEN sums.ap_sum > 0 AND sums.rap_sum > 0 THEN GREATEST(sums.ap_sum, sums.rap_sum)
@@ -412,7 +510,15 @@ proc: BEGIN
              ELSE sums.heal_sum
            END AS heal,
            sums.mp5_sum,
-           sums.hp5_sum
+           sums.hp5_sum,
+           sums.hit_sum,
+           sums.sphit_sum,
+           sums.spcrit_sum,
+           sums.crit_sum,
+           sums.blockvalue_sum,
+           sums.block_sum,
+           sums.parry_sum,
+           sums.dodge_sum
     FROM (
       SELECT spellid,
              SUM(CASE WHEN aura_code='AP' THEN magnitude ELSE 0 END) AS ap_sum,
@@ -421,7 +527,15 @@ proc: BEGIN
              SUM(CASE WHEN aura_code LIKE 'SDONE%' THEN magnitude ELSE 0 END) AS sd_one_sum,
              SUM(CASE WHEN aura_code='HEAL' THEN magnitude ELSE 0 END) AS heal_sum,
              SUM(CASE WHEN aura_code='MP5' THEN magnitude ELSE 0 END) AS mp5_sum,
-             SUM(CASE WHEN aura_code='HP5' THEN magnitude ELSE 0 END) AS hp5_sum
+             SUM(CASE WHEN aura_code='HP5' THEN magnitude ELSE 0 END) AS hp5_sum,
+             SUM(CASE WHEN aura_code='HIT' THEN magnitude ELSE 0 END) AS hit_sum,
+             SUM(CASE WHEN aura_code='SPHIT' THEN magnitude ELSE 0 END) AS sphit_sum,
+             SUM(CASE WHEN aura_code='SPCRIT' THEN magnitude ELSE 0 END) AS spcrit_sum,
+             SUM(CASE WHEN aura_code='CRIT' THEN magnitude ELSE 0 END) AS crit_sum,
+             SUM(CASE WHEN aura_code='BLOCKVALUE' THEN magnitude ELSE 0 END) AS blockvalue_sum,
+             SUM(CASE WHEN aura_code='BLOCK' THEN magnitude ELSE 0 END) AS block_sum,
+             SUM(CASE WHEN aura_code='PARRY' THEN magnitude ELSE 0 END) AS parry_sum,
+             SUM(CASE WHEN aura_code='DODGE' THEN magnitude ELSE 0 END) AS dodge_sum
       FROM tmp_item_auras_raw
       GROUP BY spellid
     ) AS sums;
@@ -433,8 +547,17 @@ proc: BEGIN
       IFNULL(SUM(sd_one), 0.0),
       IFNULL(SUM(heal), 0.0),
       IFNULL(SUM(mp5), 0.0),
-      IFNULL(SUM(hp5), 0.0)
-    INTO @aur_ap, @aur_rap, @aur_sd_all, @aur_sd_one, @aur_heal, @aur_mp5, @aur_hp5
+      IFNULL(SUM(hp5), 0.0),
+      IFNULL(SUM(hit), 0.0),
+      IFNULL(SUM(sphit), 0.0),
+      IFNULL(SUM(spcrit), 0.0),
+      IFNULL(SUM(crit), 0.0),
+      IFNULL(SUM(blockvalue), 0.0),
+      IFNULL(SUM(block), 0.0),
+      IFNULL(SUM(parry), 0.0),
+      IFNULL(SUM(dodge), 0.0)
+    INTO @aur_ap, @aur_rap, @aur_sd_all, @aur_sd_one, @aur_heal, @aur_mp5, @aur_hp5,
+         @aur_hit, @aur_sphit, @aur_spcrit, @aur_crit, @aur_blockvalue, @aur_block, @aur_parry, @aur_dodge
     FROM tmp_item_aura_totals;
 
     SET @S_cur_a :=
@@ -444,7 +567,15 @@ proc: BEGIN
       + POW(GREATEST(0, @aur_sd_one * @W_SD_ONE), 1.5)
       + POW(GREATEST(0, @aur_heal   * @W_HEAL),   1.5)
       + POW(GREATEST(0, @aur_mp5    * @W_MP5),    1.5)
-      + POW(GREATEST(0, @aur_hp5    * @W_HP5),    1.5);
+      + POW(GREATEST(0, @aur_hp5    * @W_HP5),    1.5)
+      + POW(GREATEST(0, @aur_hit    * @W_HIT),    1.5)
+      + POW(GREATEST(0, @aur_sphit  * @W_SPHIT),  1.5)
+      + POW(GREATEST(0, @aur_spcrit * @W_SPCRIT), 1.5)
+      + POW(GREATEST(0, @aur_crit   * @W_CRIT),   1.5)
+      + POW(GREATEST(0, @aur_blockvalue * @W_BLOCKVALUE), 1.5)
+      + POW(GREATEST(0, @aur_block  * @W_BLOCK),  1.5)
+      + POW(GREATEST(0, @aur_parry  * @W_PARRY),  1.5)
+      + POW(GREATEST(0, @aur_dodge  * @W_DODGE),  1.5);
 
     CREATE TEMPORARY TABLE tmp_aura_updates(
       spellid INT UNSIGNED NOT NULL,
@@ -581,7 +712,10 @@ proc: BEGIN
                   r.effect_aura,
                   r.effect_misc,
                   r.magnitude,
-                 GREATEST(0, ROUND(r.magnitude * @aura_scale)) AS desired_mag
+                 CASE
+                   WHEN r.aura_code IN ('HIT','SPHIT','SPCRIT','CRIT','BLOCKVALUE','BLOCK','PARRY','DODGE') THEN r.magnitude
+                   ELSE GREATEST(0, ROUND(r.magnitude * @aura_scale))
+                 END AS desired_mag
           FROM tmp_item_auras_raw r
         ) AS x
         ORDER BY x.aura_code,
@@ -596,6 +730,14 @@ proc: BEGIN
       SET @aur_plan_heal_raw := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='HEAL'), 0.0);
       SET @aur_plan_mp5 := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='MP5'), 0.0);
       SET @aur_plan_hp5 := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='HP5'), 0.0);
+      SET @aur_plan_hit := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='HIT'), 0.0);
+      SET @aur_plan_sphit := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='SPHIT'), 0.0);
+      SET @aur_plan_spcrit := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='SPCRIT'), 0.0);
+      SET @aur_plan_crit := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='CRIT'), 0.0);
+      SET @aur_plan_blockvalue := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='BLOCKVALUE'), 0.0);
+      SET @aur_plan_block := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='BLOCK'), 0.0);
+      SET @aur_plan_parry := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='PARRY'), 0.0);
+      SET @aur_plan_dodge := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='DODGE'), 0.0);
 
       SET @aur_plan_heal := CASE WHEN @aur_plan_sd_all > 0 AND @aur_plan_heal_raw = @aur_plan_sd_all THEN 0 ELSE @aur_plan_heal_raw END;
 
@@ -606,7 +748,15 @@ proc: BEGIN
         + POW(GREATEST(0, @aur_plan_sd_one * @W_SD_ONE), 1.5)
         + POW(GREATEST(0, @aur_plan_heal   * @W_HEAL),   1.5)
         + POW(GREATEST(0, @aur_plan_mp5    * @W_MP5),    1.5)
-        + POW(GREATEST(0, @aur_plan_hp5    * @W_HP5),    1.5);
+        + POW(GREATEST(0, @aur_plan_hp5    * @W_HP5),    1.5)
+        + POW(GREATEST(0, @aur_plan_hit    * @W_HIT),    1.5)
+        + POW(GREATEST(0, @aur_plan_sphit  * @W_SPHIT),  1.5)
+        + POW(GREATEST(0, @aur_plan_spcrit * @W_SPCRIT), 1.5)
+        + POW(GREATEST(0, @aur_plan_crit   * @W_CRIT),   1.5)
+        + POW(GREATEST(0, @aur_plan_blockvalue * @W_BLOCKVALUE), 1.5)
+        + POW(GREATEST(0, @aur_plan_block  * @W_BLOCK),  1.5)
+        + POW(GREATEST(0, @aur_plan_parry  * @W_PARRY),  1.5)
+        + POW(GREATEST(0, @aur_plan_dodge  * @W_DODGE),  1.5);
     ELSE
       SET @S_final_a := 0.0;
     END IF;
@@ -726,7 +876,10 @@ proc: BEGIN
                   r.effect_aura,
                   r.effect_misc,
                   r.magnitude,
-                 GREATEST(0, ROUND(r.magnitude * @aura_scale)) AS desired_mag
+                 CASE
+                   WHEN r.aura_code IN ('HIT','SPHIT','SPCRIT','CRIT','BLOCKVALUE','BLOCK','PARRY','DODGE') THEN r.magnitude
+                   ELSE GREATEST(0, ROUND(r.magnitude * @aura_scale))
+                 END AS desired_mag
           FROM tmp_item_auras_raw r
         ) AS x
         ORDER BY x.aura_code,
@@ -812,8 +965,17 @@ proc: BEGIN
         IFNULL(SUM(final_sd_one), 0.0),
         IFNULL(SUM(final_heal), 0.0),
         IFNULL(SUM(final_mp5), 0.0),
-        IFNULL(SUM(final_hp5), 0.0)
-      INTO @aur_new_ap, @aur_new_rap, @aur_new_sd_all, @aur_new_sd_one, @aur_new_heal, @aur_new_mp5, @aur_new_hp5
+        IFNULL(SUM(final_hp5), 0.0),
+        IFNULL(SUM(final_hit), 0.0),
+        IFNULL(SUM(final_sphit), 0.0),
+        IFNULL(SUM(final_spcrit), 0.0),
+        IFNULL(SUM(final_crit), 0.0),
+        IFNULL(SUM(final_blockvalue), 0.0),
+        IFNULL(SUM(final_block), 0.0),
+        IFNULL(SUM(final_parry), 0.0),
+        IFNULL(SUM(final_dodge), 0.0)
+      INTO @aur_new_ap, @aur_new_rap, @aur_new_sd_all, @aur_new_sd_one, @aur_new_heal, @aur_new_mp5, @aur_new_hp5,
+           @aur_new_hit, @aur_new_sphit, @aur_new_spcrit, @aur_new_crit, @aur_new_blockvalue, @aur_new_block, @aur_new_parry, @aur_new_dodge
       FROM (
         SELECT sums.spellid,
                CASE
@@ -831,7 +993,15 @@ proc: BEGIN
                  ELSE sums.heal_sum
                END AS final_heal,
                sums.mp5_sum AS final_mp5,
-               sums.hp5_sum AS final_hp5
+               sums.hp5_sum AS final_hp5,
+               sums.hit_sum AS final_hit,
+               sums.sphit_sum AS final_sphit,
+               sums.spcrit_sum AS final_spcrit,
+               sums.crit_sum AS final_crit,
+               sums.blockvalue_sum AS final_blockvalue,
+               sums.block_sum AS final_block,
+               sums.parry_sum AS final_parry,
+               sums.dodge_sum AS final_dodge
         FROM (
           SELECT spellid,
                  SUM(CASE WHEN aura_code='AP' THEN new_magnitude ELSE 0 END) AS ap_sum,
@@ -840,7 +1010,15 @@ proc: BEGIN
                  SUM(CASE WHEN aura_code LIKE 'SDONE%' THEN new_magnitude ELSE 0 END) AS sd_one_sum,
                  SUM(CASE WHEN aura_code='HEAL' THEN new_magnitude ELSE 0 END) AS heal_sum,
                  SUM(CASE WHEN aura_code='MP5' THEN new_magnitude ELSE 0 END) AS mp5_sum,
-                 SUM(CASE WHEN aura_code='HP5' THEN new_magnitude ELSE 0 END) AS hp5_sum
+                 SUM(CASE WHEN aura_code='HP5' THEN new_magnitude ELSE 0 END) AS hp5_sum,
+                 SUM(CASE WHEN aura_code='HIT' THEN new_magnitude ELSE 0 END) AS hit_sum,
+                 SUM(CASE WHEN aura_code='SPHIT' THEN new_magnitude ELSE 0 END) AS sphit_sum,
+                 SUM(CASE WHEN aura_code='SPCRIT' THEN new_magnitude ELSE 0 END) AS spcrit_sum,
+                 SUM(CASE WHEN aura_code='CRIT' THEN new_magnitude ELSE 0 END) AS crit_sum,
+                 SUM(CASE WHEN aura_code='BLOCKVALUE' THEN new_magnitude ELSE 0 END) AS blockvalue_sum,
+                 SUM(CASE WHEN aura_code='BLOCK' THEN new_magnitude ELSE 0 END) AS block_sum,
+                 SUM(CASE WHEN aura_code='PARRY' THEN new_magnitude ELSE 0 END) AS parry_sum,
+                 SUM(CASE WHEN aura_code='DODGE' THEN new_magnitude ELSE 0 END) AS dodge_sum
           FROM tmp_aura_updates
           GROUP BY spellid
         ) AS sums
@@ -853,7 +1031,15 @@ proc: BEGIN
         + POW(GREATEST(0, @aur_new_sd_one * @W_SD_ONE), 1.5)
         + POW(GREATEST(0, @aur_new_heal   * @W_HEAL),   1.5)
         + POW(GREATEST(0, @aur_new_mp5    * @W_MP5),    1.5)
-        + POW(GREATEST(0, @aur_new_hp5    * @W_HP5),    1.5);
+        + POW(GREATEST(0, @aur_new_hp5    * @W_HP5),    1.5)
+        + POW(GREATEST(0, @aur_new_hit    * @W_HIT),    1.5)
+        + POW(GREATEST(0, @aur_new_sphit  * @W_SPHIT),  1.5)
+        + POW(GREATEST(0, @aur_new_spcrit * @W_SPCRIT), 1.5)
+        + POW(GREATEST(0, @aur_new_crit   * @W_CRIT),   1.5)
+        + POW(GREATEST(0, @aur_new_blockvalue * @W_BLOCKVALUE), 1.5)
+        + POW(GREATEST(0, @aur_new_block  * @W_BLOCK),  1.5)
+        + POW(GREATEST(0, @aur_new_parry  * @W_PARRY),  1.5)
+        + POW(GREATEST(0, @aur_new_dodge  * @W_DODGE),  1.5);
     ELSE
       SET @S_final_a := 0.0;
       SET @aur_new_ap := 0.0;
@@ -863,6 +1049,14 @@ proc: BEGIN
       SET @aur_new_heal := 0.0;
       SET @aur_new_mp5 := 0.0;
       SET @aur_new_hp5 := 0.0;
+      SET @aur_new_hit := 0.0;
+      SET @aur_new_sphit := 0.0;
+      SET @aur_new_spcrit := 0.0;
+      SET @aur_new_crit := 0.0;
+      SET @aur_new_blockvalue := 0.0;
+      SET @aur_new_block := 0.0;
+      SET @aur_new_parry := 0.0;
+      SET @aur_new_dodge := 0.0;
     END IF;
 
     SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus;
