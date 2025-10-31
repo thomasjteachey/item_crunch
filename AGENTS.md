@@ -1,3 +1,27 @@
+- StatMod weights from 'Item level.docx':
+  - Armor: 22
+  - Attack Power vs (demons, beasts, undead): 76
+  - Ranged Attack Power: 92
+  - Spell Healing: 100
+  - Attack Power: 115
+  - Blocking Value: 150
+  - Spell Damage (One school): 159
+  - Spell Damage (All Spells): 192
+  - Magic Resist (One school): 230
+  - Primary Stat (STR, AGI, STA, INT, SPI): 230
+  - Defense: 345
+  - Regen per 5 sec (Health or Mana): 550
+  - Weapon skill (other): 550
+  - Weapon skill (daggers): 720
+  - Damage Shield: 720
+  - % chance to Block: 1300
+  - % chance to hit: 2200
+  - % chance to hit with all spells: 2500
+  - % chance to Dodge: 2500
+  - % chance to crit with all spells: 2600
+  - % chance to crit: 3200
+  - % chance to Parry: 3600
+
 - sp_ScaleItemToIlvl_SimpleGreedy(entry, target_ilvl, apply, scale_auras)
 - primary stats, resistances, and (optionally) auras (excluding hit/crit percentages) start from the same shared scale factor so everything shrinks or grows together before rounding
   - hit/crit percentages stay fixed; the remaining stats shift around them so the recomputed item level still hits the requested target
