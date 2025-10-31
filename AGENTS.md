@@ -1,4 +1,5 @@
 - chance aura stat weights from 'Item level.docx':
+  - Blocking Value: 150
   - % chance to Block: 1300
   - % chance to hit: 2200
   - % chance to hit with all spells: 2500
