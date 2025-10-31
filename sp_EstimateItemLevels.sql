@@ -26,6 +26,8 @@ BEGIN
   SET @W_DAMAGE_SHIELD := 720;        -- Damage shield
   SET @W_MP5     := 550;      -- Mana per 5s
   SET @W_HP5     := 550;      -- Health per 5s (same budget per your rule)
+  SET @W_BLOCKVALUE := 150;   -- Blocking Value (shield or stat)
+  SET @W_BLOCKPCT   := 1300;  -- % chance to Block
 
   /* ===== DBC Auras (Classic) ===== */
   SET @AURA_AP := 99;    SET @AURA_RAP := 124;
@@ -66,6 +68,30 @@ BEGIN
          + POW(GREATEST(0, CASE WHEN it.stat_type9  IN (3,4,5,6,7) THEN it.stat_value9  * @W_PRIMARY ELSE 0 END), 1.5)
          + POW(GREATEST(0, CASE WHEN it.stat_type10 IN (3,4,5,6,7) THEN it.stat_value10 * @W_PRIMARY ELSE 0 END), 1.5)
 
+         /* block value stats (ITEM_MOD_BLOCK_VALUE = 48) */
+         + POW(GREATEST(0, CASE WHEN it.stat_type1  = 48 THEN it.stat_value1  * @W_BLOCKVALUE ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type2  = 48 THEN it.stat_value2  * @W_BLOCKVALUE ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type3  = 48 THEN it.stat_value3  * @W_BLOCKVALUE ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type4  = 48 THEN it.stat_value4  * @W_BLOCKVALUE ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type5  = 48 THEN it.stat_value5  * @W_BLOCKVALUE ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type6  = 48 THEN it.stat_value6  * @W_BLOCKVALUE ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type7  = 48 THEN it.stat_value7  * @W_BLOCKVALUE ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type8  = 48 THEN it.stat_value8  * @W_BLOCKVALUE ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type9  = 48 THEN it.stat_value9  * @W_BLOCKVALUE ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type10 = 48 THEN it.stat_value10 * @W_BLOCKVALUE ELSE 0 END), 1.5)
+
+         /* block percentage stats (ITEM_MOD_BLOCK_RATING = 15) */
+         + POW(GREATEST(0, CASE WHEN it.stat_type1  = 15 THEN it.stat_value1  * @W_BLOCKPCT ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type2  = 15 THEN it.stat_value2  * @W_BLOCKPCT ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type3  = 15 THEN it.stat_value3  * @W_BLOCKPCT ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type4  = 15 THEN it.stat_value4  * @W_BLOCKPCT ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type5  = 15 THEN it.stat_value5  * @W_BLOCKPCT ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type6  = 15 THEN it.stat_value6  * @W_BLOCKPCT ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type7  = 15 THEN it.stat_value7  * @W_BLOCKPCT ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type8  = 15 THEN it.stat_value8  * @W_BLOCKPCT ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type9  = 15 THEN it.stat_value9  * @W_BLOCKPCT ELSE 0 END), 1.5)
+         + POW(GREATEST(0, CASE WHEN it.stat_type10 = 15 THEN it.stat_value10 * @W_BLOCKPCT ELSE 0 END), 1.5)
+
          /* regular armor excluded */
          + POW(GREATEST(0, IFNULL(it.armor,0) * @W_ARMOR), 1.5)
 
@@ -79,6 +105,7 @@ BEGIN
          + POW(GREATEST(0, IFNULL(it.frost_res,0)  * @W_RESIST), 1.5)
          + POW(GREATEST(0, IFNULL(it.shadow_res,0) * @W_RESIST), 1.5)
          + POW(GREATEST(0, IFNULL(it.arcane_res,0) * @W_RESIST), 1.5)
+         + POW(GREATEST(0, IFNULL(it.block,0)       * @W_BLOCKVALUE), 1.5)
   FROM lplusworld.item_template it;
 
   /* ===== On-equip spells (distinct equips only) ===== */

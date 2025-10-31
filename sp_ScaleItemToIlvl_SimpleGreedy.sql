@@ -48,6 +48,8 @@ proc: BEGIN
   SET @W_HP5     :=  550.0;
   SET @W_RESIST  :=  230.0;
   SET @W_BONUSARMOR :=   22.0;
+  SET @W_BLOCKVALUE :=  150.0;
+  SET @W_BLOCKPCT   := 1300.0;
 
   SET @AURA_AP := 99;    SET @AURA_RAP := 124;
   SET @AURA_AP_VERSUS := 102; SET @AURA_RAP_VERSUS := 131;
@@ -106,12 +108,14 @@ proc: BEGIN
          stat_type7,stat_value7, stat_type8,stat_value8, stat_type9,stat_value9,
          stat_type10,stat_value10,
          holy_res, fire_res, nature_res, frost_res, shadow_res, arcane_res,
+         block,
          ArmorDamageModifier
   INTO  @st1,@sv1, @st2,@sv2, @st3,@sv3,
         @st4,@sv4, @st5,@sv5, @st6,@sv6,
         @st7,@sv7, @st8,@sv8, @st9,@sv9,
         @st10,@sv10,
         @res_holy,@res_fire,@res_nature,@res_frost,@res_shadow,@res_arcane,
+        @block_value,
         @bonus_armor
   FROM lplusworld.item_template
   WHERE entry = p_entry;
@@ -171,10 +175,71 @@ proc: BEGIN
   SET @res_arcane_new := @res_arcane;
   SET @resist_scale := 1.0;
 
+  /* block value base budget */
+  SET @block_value := IFNULL(@block_value, 0);
+  SET @S_cur_block_base := POW(GREATEST(0, @block_value * @W_BLOCKVALUE), 1.5);
+  SET @block_value_new := @block_value;
+
   /* bonus armor budget */
   SET @bonus_armor := IFNULL(@bonus_armor, 0.0);
   SET @S_cur_bonus := POW(GREATEST(0, @bonus_armor * @W_BONUSARMOR), 1.5);
   SET @bonus_armor_new := @bonus_armor;
+
+  /* block value stats */
+  DROP TEMPORARY TABLE IF EXISTS tmp_blockvalue_cur;
+  CREATE TEMPORARY TABLE tmp_blockvalue_cur(stat TINYINT PRIMARY KEY, v DOUBLE) ENGINE=Memory;
+
+  INSERT INTO tmp_blockvalue_cur(stat,v)
+  SELECT s, SUM(vv) FROM (
+    SELECT @st1 s, @sv1 vv UNION ALL
+    SELECT @st2, @sv2 UNION ALL
+    SELECT @st3, @sv3 UNION ALL
+    SELECT @st4, @sv4 UNION ALL
+    SELECT @st5, @sv5 UNION ALL
+    SELECT @st6, @sv6 UNION ALL
+    SELECT @st7, @sv7 UNION ALL
+    SELECT @st8, @sv8 UNION ALL
+    SELECT @st9, @sv9 UNION ALL
+    SELECT @st10,@sv10
+  ) z
+  WHERE s = 48 AND vv IS NOT NULL AND vv > 0
+  GROUP BY s;
+
+  SELECT IFNULL(SUM(v), 0.0)
+    INTO @blockvalue_stat_old
+  FROM tmp_blockvalue_cur;
+
+  SELECT IFNULL(SUM(POW(GREATEST(0, v * @W_BLOCKVALUE), 1.5)), 0.0)
+    INTO @S_cur_block_stats
+  FROM tmp_blockvalue_cur;
+
+  /* block percentage stats */
+  DROP TEMPORARY TABLE IF EXISTS tmp_blockpct_cur;
+  CREATE TEMPORARY TABLE tmp_blockpct_cur(stat TINYINT PRIMARY KEY, v DOUBLE) ENGINE=Memory;
+
+  INSERT INTO tmp_blockpct_cur(stat,v)
+  SELECT s, SUM(vv) FROM (
+    SELECT @st1 s, @sv1 vv UNION ALL
+    SELECT @st2, @sv2 UNION ALL
+    SELECT @st3, @sv3 UNION ALL
+    SELECT @st4, @sv4 UNION ALL
+    SELECT @st5, @sv5 UNION ALL
+    SELECT @st6, @sv6 UNION ALL
+    SELECT @st7, @sv7 UNION ALL
+    SELECT @st8, @sv8 UNION ALL
+    SELECT @st9, @sv9 UNION ALL
+    SELECT @st10,@sv10
+  ) z
+  WHERE s = 15 AND vv IS NOT NULL AND vv > 0
+  GROUP BY s;
+
+  SELECT IFNULL(SUM(v), 0.0)
+    INTO @blockpct_old
+  FROM tmp_blockpct_cur;
+
+  SELECT IFNULL(SUM(POW(GREATEST(0, v * @W_BLOCKPCT), 1.5)), 0.0)
+    INTO @S_cur_block_pct
+  FROM tmp_blockpct_cur;
 
   /* ===== Current aura budget ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_spells;
@@ -683,26 +748,46 @@ proc: BEGIN
     ) ENGINE=Memory;
   END IF;
 
-  SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res - @S_cur_bonus;
+  SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res - @S_cur_bonus - @S_cur_block_base - @S_cur_block_stats - @S_cur_block_pct;
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
   VALUES (p_entry, 'shared_budget_current', 'primaries', @S_cur_p,
-          CONCAT('auras=', @S_cur_a, ',resists=', @S_cur_res, ',bonus=', @S_cur_bonus, ',other=', @S_other)),
+          CONCAT('auras=', @S_cur_a, ',resists=', @S_cur_res, ',bonus=', @S_cur_bonus,
+                 ',block_base=', @S_cur_block_base, ',block_value=', @S_cur_block_stats,
+                 ',block_pct=', @S_cur_block_pct, ',other=', @S_other)),
          (p_entry, 'shared_budget_current', 'auras', @S_cur_a,
-          CONCAT('primaries=', @S_cur_p, ',resists=', @S_cur_res, ',bonus=', @S_cur_bonus, ',other=', @S_other)),
+          CONCAT('primaries=', @S_cur_p, ',resists=', @S_cur_res, ',bonus=', @S_cur_bonus,
+                 ',block_base=', @S_cur_block_base, ',block_value=', @S_cur_block_stats,
+                 ',block_pct=', @S_cur_block_pct, ',other=', @S_other)),
          (p_entry, 'shared_budget_current', 'resists', @S_cur_res,
-          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',bonus=', @S_cur_bonus, ',other=', @S_other)),
+          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',bonus=', @S_cur_bonus,
+                 ',block_base=', @S_cur_block_base, ',block_value=', @S_cur_block_stats,
+                 ',block_pct=', @S_cur_block_pct, ',other=', @S_other)),
          (p_entry, 'shared_budget_current', 'bonus_armor', @S_cur_bonus,
-          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res, ',other=', @S_other));
+          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res,
+                 ',block_base=', @S_cur_block_base, ',block_value=', @S_cur_block_stats,
+                 ',block_pct=', @S_cur_block_pct, ',other=', @S_other)),
+         (p_entry, 'shared_budget_current', 'block_base', @S_cur_block_base,
+          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res,
+                 ',bonus=', @S_cur_bonus, ',block_value=', @S_cur_block_stats,
+                 ',block_pct=', @S_cur_block_pct, ',other=', @S_other)),
+         (p_entry, 'shared_budget_current', 'block_value', @S_cur_block_stats,
+          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res,
+                 ',bonus=', @S_cur_bonus, ',block_base=', @S_cur_block_base,
+                 ',block_pct=', @S_cur_block_pct, ',other=', @S_other)),
+         (p_entry, 'shared_budget_current', 'block_pct', @S_cur_block_pct,
+          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res,
+                 ',bonus=', @S_cur_bonus, ',block_base=', @S_cur_block_base,
+                 ',block_value=', @S_cur_block_stats, ',other=', @S_other));
   SET @S_target_shared := GREATEST(0.0, @S_tgt - @S_other);
-  IF (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus) > 0 THEN
-    SET @ratio_shared := @S_target_shared / (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus);
+  IF (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus + @S_cur_block_base + @S_cur_block_stats + @S_cur_block_pct) > 0 THEN
+    SET @ratio_shared := @S_target_shared / (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus + @S_cur_block_base + @S_cur_block_stats + @S_cur_block_pct);
   ELSE
     SET @ratio_shared := 0.0;
   END IF;
   SET @ratio_shared := GREATEST(0.0, @ratio_shared);
 
-  IF (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus) > 0 THEN
+  IF (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus + @S_cur_block_base + @S_cur_block_stats + @S_cur_block_pct) > 0 THEN
     SET @shared_scale := CASE
       WHEN @ratio_shared = 0 THEN 0
       ELSE POW(@ratio_shared, 2.0/3.0)
@@ -717,7 +802,10 @@ proc: BEGIN
   SET @S_final_a := @S_cur_a;
   SET @S_final_p := @S_cur_p;
   SET @S_final_bonus := @S_cur_bonus;
-  SET @S_after_shared := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus;
+  SET @S_final_block_base := @S_cur_block_base;
+  SET @S_final_block_stats := @S_cur_block_stats;
+  SET @S_final_block_pct := @S_cur_block_pct;
+  SET @S_after_shared := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus + @S_cur_block_base + @S_cur_block_stats + @S_cur_block_pct;
   SET @scale_adjust := 1.0;
   SET @ratio_adjust := 1.0;
 
@@ -751,6 +839,31 @@ proc: BEGIN
 
     SET @bonus_armor_new := ROUND(GREATEST(0, @bonus_armor * @shared_scale));
     SET @S_final_bonus := POW(GREATEST(0, @bonus_armor_new * @W_BONUSARMOR), 1.5);
+
+    SET @block_value_new := ROUND(GREATEST(0, @block_value * @shared_scale));
+    SET @S_final_block_base := POW(GREATEST(0, @block_value_new * @W_BLOCKVALUE), 1.5);
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_blockvalue_new;
+    CREATE TEMPORARY TABLE tmp_blockvalue_new(stat TINYINT PRIMARY KEY, newv INT) ENGINE=Memory;
+    INSERT INTO tmp_blockvalue_new(stat,newv)
+    SELECT stat,
+           ROUND(GREATEST(0.0, v * @shared_scale))
+    FROM tmp_blockvalue_cur;
+
+    SELECT IFNULL(SUM(POW(GREATEST(0, newv * @W_BLOCKVALUE), 1.5)), 0.0)
+      INTO @S_final_block_stats
+    FROM tmp_blockvalue_new;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_blockpct_new;
+    CREATE TEMPORARY TABLE tmp_blockpct_new(stat TINYINT PRIMARY KEY, newv INT) ENGINE=Memory;
+    INSERT INTO tmp_blockpct_new(stat,newv)
+    SELECT stat,
+           ROUND(GREATEST(0.0, v * @shared_scale))
+    FROM tmp_blockpct_cur;
+
+    SELECT IFNULL(SUM(POW(GREATEST(0, newv * @W_BLOCKPCT), 1.5)), 0.0)
+      INTO @S_final_block_pct
+    FROM tmp_blockpct_new;
 
     IF @scale_auras = 1 THEN
       DELETE FROM tmp_aura_updates;
@@ -866,7 +979,7 @@ proc: BEGIN
       INTO @S_final_p
     FROM tmp_pnew;
 
-    SET @S_after_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus;
+    SET @S_after_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus + @S_final_block_base + @S_final_block_stats + @S_final_block_pct;
 
     IF @S_after_shared = 0 THEN
       LEAVE shared_scale_loop;
@@ -913,6 +1026,31 @@ proc: BEGIN
 
     SET @bonus_armor_new := ROUND(GREATEST(0, @bonus_armor * @final_scale));
     SET @S_final_bonus := POW(GREATEST(0, @bonus_armor_new * @W_BONUSARMOR), 1.5);
+
+    SET @block_value_new := ROUND(GREATEST(0, @block_value * @final_scale));
+    SET @S_final_block_base := POW(GREATEST(0, @block_value_new * @W_BLOCKVALUE), 1.5);
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_blockvalue_new;
+    CREATE TEMPORARY TABLE tmp_blockvalue_new(stat TINYINT PRIMARY KEY, newv INT) ENGINE=Memory;
+    INSERT INTO tmp_blockvalue_new(stat,newv)
+    SELECT stat,
+           ROUND(GREATEST(0.0, v * @final_scale))
+    FROM tmp_blockvalue_cur;
+
+    SELECT IFNULL(SUM(POW(GREATEST(0, newv * @W_BLOCKVALUE), 1.5)), 0.0)
+      INTO @S_final_block_stats
+    FROM tmp_blockvalue_new;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_blockpct_new;
+    CREATE TEMPORARY TABLE tmp_blockpct_new(stat TINYINT PRIMARY KEY, newv INT) ENGINE=Memory;
+    INSERT INTO tmp_blockpct_new(stat,newv)
+    SELECT stat,
+           ROUND(GREATEST(0.0, v * @final_scale))
+    FROM tmp_blockpct_cur;
+
+    SELECT IFNULL(SUM(POW(GREATEST(0, newv * @W_BLOCKPCT), 1.5)), 0.0)
+      INTO @S_final_block_pct
+    FROM tmp_blockpct_new;
 
     DROP TEMPORARY TABLE IF EXISTS tmp_pnew;
     CREATE TEMPORARY TABLE tmp_pnew(stat TINYINT PRIMARY KEY, newv INT) ENGINE=Memory;
@@ -1281,6 +1419,14 @@ proc: BEGIN
   LEFT JOIN tmp_pnew n ON n.stat = s.stat_type
   SET s.stat_value = IFNULL(n.newv, s.stat_value);
 
+  UPDATE tmp_slots_cur s
+  LEFT JOIN tmp_blockvalue_new bv ON bv.stat = s.stat_type
+  SET s.stat_value = IFNULL(bv.newv, s.stat_value);
+
+  UPDATE tmp_slots_cur s
+  LEFT JOIN tmp_blockpct_new bp ON bp.stat = s.stat_type
+  SET s.stat_value = IFNULL(bp.newv, s.stat_value);
+
   DROP TEMPORARY TABLE IF EXISTS tmp_pivot_vals;
   CREATE TEMPORARY TABLE tmp_pivot_vals
   SELECT
@@ -1325,8 +1471,17 @@ proc: BEGIN
         t.frost_res    = @res_frost_new,
         t.shadow_res   = @res_shadow_new,
         t.arcane_res   = @res_arcane_new,
+        t.block        = @block_value_new,
         t.armorDamageModifier = @bonus_armor_new
     WHERE t.entry = p_entry;
+
+    SELECT IFNULL(SUM(newv), 0)
+      INTO @blockvalue_stat_new
+    FROM tmp_blockvalue_new;
+
+    SELECT IFNULL(SUM(newv), 0)
+      INTO @blockpct_new
+    FROM tmp_blockpct_new;
 
     INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
     VALUES (p_entry, 'resist_final', 'holy',   @res_holy_new,   CONCAT('old=', @res_holy)),
@@ -1335,7 +1490,10 @@ proc: BEGIN
            (p_entry, 'resist_final', 'frost',  @res_frost_new,  CONCAT('old=', @res_frost)),
            (p_entry, 'resist_final', 'shadow', @res_shadow_new, CONCAT('old=', @res_shadow)),
            (p_entry, 'resist_final', 'arcane', @res_arcane_new, CONCAT('old=', @res_arcane)),
-           (p_entry, 'bonus_armor_final', 'bonus_armor', @bonus_armor_new, CONCAT('old=', @bonus_armor));
+           (p_entry, 'bonus_armor_final', 'bonus_armor', @bonus_armor_new, CONCAT('old=', @bonus_armor)),
+           (p_entry, 'block_final', 'block_base', @block_value_new, CONCAT('old=', @block_value)),
+           (p_entry, 'block_value_final', 'stat_48', @blockvalue_stat_new, CONCAT('old=', @blockvalue_stat_old)),
+           (p_entry, 'block_pct_final', 'stat_15', @blockpct_new, CONCAT('old=', @blockpct_old));
 
     IF @scale_auras = 1 THEN
         SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
