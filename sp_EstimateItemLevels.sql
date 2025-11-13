@@ -1,6 +1,3 @@
-DELIMITER //
-drop procedure if exists sp_EstimateItemLevels;
-
 CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_EstimateItemLevels`()
 BEGIN
   /* ===== Weights (must match anything that scales/reforges) ===== */
@@ -394,7 +391,6 @@ BEGIN
          it.Quality
   FROM lplusworld.item_template it
   JOIN tmp_item_values iv ON iv.entry = it.entry;
-
   /* ===== Map to true ilvl via quality curves & write ===== */
   UPDATE lplusworld.item_template t
   JOIN tmp_item_slot_values sv ON sv.entry = t.entry
@@ -406,4 +402,5 @@ BEGIN
           ELSE (sv.ItemSlotValue + 9.8) / 1.21
         END
       );
+      CALL helper.sp_EstimateItemLevels_WeaponsFromBracketMedians();
 END
