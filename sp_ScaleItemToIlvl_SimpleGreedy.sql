@@ -77,24 +77,30 @@ proc: BEGIN
   SET @scale_auras := CASE WHEN IFNULL(p_scale_auras, 1) <> 0 THEN 1 ELSE 0 END;
 
   /* optional weapon DPS trade delta (populated when the weapon scaler runs beforehand) */
-  SET @trade_dps_delta := 0.0;
-  SET @trade_statvalue_delta := 0.0;
+  SET @trade_dps_current := 0.0;
+  SET @trade_dps_target := 0.0;
+  SET @trade_statvalue_current := 0.0;
+  SET @trade_statvalue_target := 0.0;
+  SET @trade_budget_current := 0.0;
+  SET @trade_budget_target := 0.0;
   SET @trade_budget_delta := 0.0;
   IF @weapon_trade_entry IS NOT NULL AND @weapon_trade_entry = p_entry THEN
-    SET @trade_dps_delta := IFNULL(@weapon_trade_dps_delta, 0.0);
+    SET @trade_dps_current := IFNULL(@weapon_trade_dps_current, 0.0);
+    SET @trade_dps_target := IFNULL(@weapon_trade_dps_target, 0.0);
     SET @weapon_trade_entry := NULL;
     SET @weapon_trade_dps_delta := NULL;
     SET @weapon_trade_dps_target := NULL;
     SET @weapon_trade_dps_current := NULL;
   END IF;
-  SET @trade_statvalue_delta := @trade_dps_delta * @WEAPON_DPS_TRADE_SD;
-  IF @trade_statvalue_delta > 0 THEN
-    SET @trade_budget_delta := POW(GREATEST(0, @trade_statvalue_delta * @W_SD_ALL), 1.5);
-  ELSEIF @trade_statvalue_delta < 0 THEN
-    SET @trade_budget_delta := -POW(GREATEST(0, -@trade_statvalue_delta * @W_SD_ALL), 1.5);
-  ELSE
-    SET @trade_budget_delta := 0.0;
+  SET @trade_statvalue_current := @trade_dps_current * @WEAPON_DPS_TRADE_SD;
+  SET @trade_statvalue_target := @trade_dps_target * @WEAPON_DPS_TRADE_SD;
+  IF @trade_statvalue_current <> 0 THEN
+    SET @trade_budget_current := POW(GREATEST(0, @trade_statvalue_current * @W_SD_ALL), 1.5);
   END IF;
+  IF @trade_statvalue_target <> 0 THEN
+    SET @trade_budget_target := POW(GREATEST(0, @trade_statvalue_target * @W_SD_ALL), 1.5);
+  END IF;
+  SET @trade_budget_delta := @trade_budget_target - @trade_budget_current;
 
   /* basics */
   SELECT Quality, InventoryType, CAST(IFNULL(trueItemLevel,0) AS SIGNED)
