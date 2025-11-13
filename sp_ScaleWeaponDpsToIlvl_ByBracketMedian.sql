@@ -1,0 +1,113 @@
+CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_ScaleWeaponDpsToIlvl_ByBracketMedian`(
+  IN p_entry        INT UNSIGNED,
+  IN p_target_ilvl  INT UNSIGNED,     -- if NULL -> use COALESCE(trueItemLevel, ItemLevel)
+  IN p_apply        TINYINT           -- 1=apply, 0=preview
+)
+main: BEGIN
+  /* -------- 1) Load item & current DPS -------- */
+  SELECT it.subclass, it.Quality, it.caster, it.delay,
+         COALESCE(it.trueItemLevel, it.ItemLevel) AS src_ilvl,
+         (
+           (COALESCE(it.dmg_min1,0)+COALESCE(it.dmg_max1,0))/2.0 +
+           (COALESCE(it.dmg_min2,0)+COALESCE(it.dmg_max2,0))/2.0
+         ) / NULLIF(it.delay/1000.0,0) AS cur_dps
+    INTO @subclass, @q, @caster, @delay, @src_ilvl, @cur_dps
+  FROM lplusworld.item_template it
+  WHERE it.entry = p_entry;
+
+  IF @delay IS NULL OR @delay = 0 OR @cur_dps IS NULL THEN
+    SELECT 'skip' AS status, 'no dps' AS reason, p_entry AS entry; LEAVE main;
+  END IF;
+
+  /* -------- 2) Bracket assignment (non-caster only) --------
+     - 1H: Axe(0) Mace(4) Sword(7) Dagger(15) Fist(13)
+     - 2H: 2H Axe(1) 2H Mace(5) Polearm(6) 2H Sword(8)   (no Staves(10))
+     - RANGED: Bow(2) Gun(3) Crossbow(18)
+     Exclude: caster=1, Staff(10), Wand(19), Thrown(16), Fishing(20) */
+  SET @bracket := CASE
+    WHEN @caster = 1 THEN NULL
+    WHEN @subclass IN (0,4,7,15,13) THEN '1H'
+    WHEN @subclass IN (1,5,6,8)     THEN '2H'
+    WHEN @subclass IN (2,3,18)      THEN 'RANGED'
+    ELSE NULL
+  END;
+
+  IF @bracket IS NULL THEN
+    SELECT 'skip' AS status, 'not in bracket (caster/staff/wand/etc)' AS reason, p_entry AS entry; LEAVE main;
+  END IF;
+
+  /* -------- 3) Desired iLvl -------- */
+  SET @tgt_ilvl := COALESCE(p_target_ilvl, @src_ilvl);
+
+  /* -------- 4) Get median for (bracket, quality, tgt_ilvl) with interpolation -------- */
+  SET @median_source := 'exact';
+  SELECT median_dps INTO @tgt_median
+  FROM helper.weapon_median_dps_bracket
+  WHERE bracket=@bracket AND quality=@q AND ilvl=@tgt_ilvl;
+
+  IF @tgt_median IS NULL THEN
+    /* nearest below and above */
+    SET @low_ilvl := (SELECT MAX(ilvl) FROM helper.weapon_median_dps_bracket
+                      WHERE bracket=@bracket AND quality=@q AND ilvl < @tgt_ilvl);
+    SET @low_med  := (SELECT median_dps FROM helper.weapon_median_dps_bracket
+                      WHERE bracket=@bracket AND quality=@q AND ilvl=@low_ilvl);
+
+    SET @high_ilvl := (SELECT MIN(ilvl) FROM helper.weapon_median_dps_bracket
+                       WHERE bracket=@bracket AND quality=@q AND ilvl > @tgt_ilvl);
+    SET @high_med  := (SELECT median_dps FROM helper.weapon_median_dps_bracket
+                       WHERE bracket=@bracket AND quality=@q AND ilvl=@high_ilvl);
+
+    IF @low_ilvl IS NOT NULL AND @high_ilvl IS NOT NULL THEN
+      /* linear interpolation between neighbors */
+      SET @median_source := 'interp';
+      SET @tgt_median := @low_med +
+                         (@high_med - @low_med) *
+                         ((@tgt_ilvl - @low_ilvl) / NULLIF(@high_ilvl - @low_ilvl,0));
+    ELSEIF @low_ilvl IS NOT NULL THEN
+      SET @median_source := 'nearest_low';
+      SET @tgt_median := @low_med;
+    ELSEIF @high_ilvl IS NOT NULL THEN
+      SET @median_source := 'nearest_high';
+      SET @tgt_median := @high_med;
+    ELSE
+      SELECT 'skip' AS status, 'no medians for bracket/quality' AS reason,
+             @bracket AS bracket, @q AS quality, @tgt_ilvl AS ilvl, p_entry AS entry; LEAVE main;
+    END IF;
+  END IF;
+
+  /* -------- 5) Monotonic rule vs iLvl direction -------- */
+  IF @tgt_ilvl > @src_ilvl AND @tgt_median < @cur_dps THEN
+    SET @tgt_median := @cur_dps;
+  ELSEIF @tgt_ilvl < @src_ilvl AND @tgt_median > @cur_dps THEN
+    SET @tgt_median := @cur_dps;
+  END IF;
+
+  /* -------- 6) Scale factor & apply (range scales linearly) -------- */
+  IF @cur_dps = 0 THEN
+    SELECT 'skip' AS status, 'current dps zero' AS reason, p_entry AS entry; LEAVE main;
+  END IF;
+
+  SET @r := @tgt_median / @cur_dps;
+
+  IF p_apply = 1 THEN
+    UPDATE lplusworld.item_template
+    SET dmg_min1 = ROUND(COALESCE(dmg_min1,0) * @r, 3),
+        dmg_max1 = ROUND(COALESCE(dmg_max1,0) * @r, 3),
+        dmg_min2 = ROUND(COALESCE(dmg_min2,0) * @r, 3),
+        dmg_max2 = ROUND(COALESCE(dmg_max2,0) * @r, 3)
+    WHERE entry = p_entry;
+  END IF;
+
+  /* -------- 7) Result preview -------- */
+  SELECT
+    CASE WHEN p_apply=1 THEN 'applied' ELSE 'preview' END AS status,
+    p_entry AS entry,
+    @bracket AS bracket,
+    @q AS quality,
+    @src_ilvl AS src_ilvl,
+    @tgt_ilvl AS tgt_ilvl,
+    @median_source AS median_source,
+    ROUND(@cur_dps,3) AS cur_dps,
+    ROUND(@tgt_median,3) AS tgt_dps,
+    ROUND(@r,6) AS ratio_applied;
+END

@@ -1,3 +1,6 @@
+DELIMITER //
+drop procedure if exists sp_EstimateItemLevels;
+
 CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_EstimateItemLevels`()
 BEGIN
   /* ===== Weights (must match anything that scales/reforges) ===== */
