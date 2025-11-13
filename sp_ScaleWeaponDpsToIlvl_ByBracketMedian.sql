@@ -5,6 +5,12 @@ CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_ScaleWeaponDpsToIlvl_ByBracketM
   IN p_scale_item   TINYINT           -- nonzero = also call scaleItemLevelGreedy afterwards
 )
 main: BEGIN
+  /* reset the weapon trade session hints so stale data never bleeds into other entries */
+  SET @weapon_trade_entry := NULL;
+  SET @weapon_trade_dps_current := NULL;
+  SET @weapon_trade_dps_target := NULL;
+  SET @weapon_trade_dps_delta := NULL;
+
   /* -------- 1) Load item & current DPS -------- */
   SELECT it.subclass, it.Quality, it.caster, it.delay,
          COALESCE(it.trueItemLevel, it.ItemLevel) AS src_ilvl,
@@ -122,10 +128,18 @@ main: BEGIN
     SET @minus_scale := CASE WHEN @src_median > 0 THEN @tgt_median / @src_median ELSE 1 END;
     SET @caster_minus_scaled := @caster_minus_current * @minus_scale;
     SET @tgt_dps := GREATEST(@tgt_median - @caster_minus_scaled, 0);
-  END IF;
 
-  IF @caster = 0 THEN
-    SET @tgt_dps := @tgt_median;
+    /* stash the caster trade delta so the greedy scaler can add/subtract the matching budget */
+    SET @weapon_trade_entry := p_entry;
+    SET @weapon_trade_dps_current := @caster_minus_current;
+    SET @weapon_trade_dps_target := @caster_minus_scaled;
+    SET @weapon_trade_dps_delta := @caster_minus_scaled - @caster_minus_current;
+  ELSE
+    /* non-caster weapons still stamp their entry so the next scaler run can safely ignore stale rows */
+    SET @weapon_trade_entry := p_entry;
+    SET @weapon_trade_dps_current := 0;
+    SET @weapon_trade_dps_target := 0;
+    SET @weapon_trade_dps_delta := 0;
   END IF;
 
   /* -------- 6) Monotonic rule vs iLvl direction -------- */
