@@ -264,6 +264,10 @@ proc: BEGIN
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_updates;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_library;
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_heal_pairs;
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_heal_sync;
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_heal;
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_sdall;
 
   SET @S_cur_a := 0.0;
   SET @aura_scale := 1.0;
@@ -396,6 +400,58 @@ proc: BEGIN
     WHERE aura_code IS NOT NULL
       AND magnitude IS NOT NULL
       AND magnitude > 0;
+
+    CREATE TEMPORARY TABLE tmp_aura_heal_pairs(
+      spellid INT UNSIGNED NOT NULL,
+      heal_effect_index TINYINT NOT NULL,
+      sd_effect_index TINYINT NOT NULL,
+      PRIMARY KEY(spellid, heal_effect_index)
+    ) ENGINE=Memory;
+
+    CREATE TEMPORARY TABLE tmp_aura_heal_sync(
+      spellid INT UNSIGNED NOT NULL,
+      heal_effect_index TINYINT NOT NULL,
+      sdall_desired INT NOT NULL,
+      sdall_new INT NOT NULL,
+      PRIMARY KEY(spellid, heal_effect_index)
+    ) ENGINE=Memory;
+
+    CREATE TEMPORARY TABLE tmp_item_auras_heal(
+      spellid INT UNSIGNED NOT NULL,
+      effect_index TINYINT NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(spellid, effect_index)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_item_auras_heal(spellid, effect_index, magnitude)
+    SELECT spellid, effect_index, magnitude
+    FROM tmp_item_auras_raw
+    WHERE aura_code = 'HEAL';
+
+    CREATE TEMPORARY TABLE tmp_item_auras_sdall(
+      spellid INT UNSIGNED NOT NULL,
+      effect_index TINYINT NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(spellid, effect_index)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_item_auras_sdall(spellid, effect_index, magnitude)
+    SELECT spellid, effect_index, magnitude
+    FROM tmp_item_auras_raw
+    WHERE aura_code = 'SDALL';
+
+    INSERT INTO tmp_aura_heal_pairs(spellid, heal_effect_index, sd_effect_index)
+    SELECT h.spellid,
+           h.effect_index AS heal_effect_index,
+           MIN(sd.effect_index) AS sd_effect_index
+    FROM tmp_item_auras_heal h
+    JOIN tmp_item_auras_sdall sd
+      ON sd.spellid = h.spellid
+     AND sd.magnitude = h.magnitude
+    GROUP BY h.spellid, h.effect_index;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_heal;
+    DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_sdall;
 
     CREATE TEMPORARY TABLE tmp_aura_library(
       spellid INT UNSIGNED NOT NULL,
@@ -973,6 +1029,27 @@ proc: BEGIN
         END IF;
       END IF;
 
+      DELETE FROM tmp_aura_heal_sync;
+
+      INSERT INTO tmp_aura_heal_sync(spellid, heal_effect_index, sdall_desired, sdall_new)
+      SELECT hp.spellid,
+             hp.heal_effect_index,
+             s.desired_magnitude,
+             s.new_magnitude
+      FROM tmp_aura_updates s
+      JOIN tmp_aura_heal_pairs hp
+        ON hp.spellid = s.spellid
+       AND hp.sd_effect_index = s.effect_index
+      WHERE s.aura_code = 'SDALL';
+
+      UPDATE tmp_aura_updates h
+      JOIN tmp_aura_heal_sync sync
+        ON sync.spellid = h.spellid
+       AND sync.heal_effect_index = h.effect_index
+      SET h.desired_magnitude = sync.sdall_desired,
+          h.new_magnitude = sync.sdall_desired
+      WHERE h.aura_code = 'HEAL';
+
       SET @aur_plan_ap := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='AP'), 0.0);
       SET @aur_plan_rap := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='RAP'), 0.0);
       SET @aur_plan_apversus := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='APVERSUS'), 0.0);
@@ -1199,10 +1276,31 @@ proc: BEGIN
                ORDER BY aura_rank DESC
                LIMIT 1;
               SET @trade_adjust_diff := @trade_adjust_diff + 1;
-            END WHILE;
+          END WHILE;
           END IF;
         END IF;
       END IF;
+
+        DELETE FROM tmp_aura_heal_sync;
+
+        INSERT INTO tmp_aura_heal_sync(spellid, heal_effect_index, sdall_desired, sdall_new)
+        SELECT hp.spellid,
+               hp.heal_effect_index,
+               s.desired_magnitude,
+               s.new_magnitude
+        FROM tmp_aura_updates s
+        JOIN tmp_aura_heal_pairs hp
+          ON hp.spellid = s.spellid
+         AND hp.sd_effect_index = s.effect_index
+        WHERE s.aura_code = 'SDALL';
+
+        UPDATE tmp_aura_updates h
+        JOIN tmp_aura_heal_sync sync
+          ON sync.spellid = h.spellid
+         AND sync.heal_effect_index = h.effect_index
+        SET h.desired_magnitude = sync.sdall_desired,
+            h.new_magnitude = sync.sdall_desired
+        WHERE h.aura_code = 'HEAL';
 
       SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
 
@@ -1274,6 +1372,26 @@ proc: BEGIN
 
         SET @pending_aura_rows := @pending_aura_rows - 1;
       END WHILE;
+
+        DELETE FROM tmp_aura_heal_sync;
+
+        INSERT INTO tmp_aura_heal_sync(spellid, heal_effect_index, sdall_desired, sdall_new)
+        SELECT hp.spellid,
+               hp.heal_effect_index,
+               s.desired_magnitude,
+               s.new_magnitude
+        FROM tmp_aura_updates s
+        JOIN tmp_aura_heal_pairs hp
+          ON hp.spellid = s.spellid
+         AND hp.sd_effect_index = s.effect_index
+        WHERE s.aura_code = 'SDALL';
+
+        UPDATE tmp_aura_updates h
+        JOIN tmp_aura_heal_sync sync
+          ON sync.spellid = h.spellid
+         AND sync.heal_effect_index = h.effect_index
+        SET h.new_magnitude = sync.sdall_new
+        WHERE h.aura_code = 'HEAL';
 
       SELECT
         IFNULL(SUM(final_ap), 0.0),
@@ -1498,6 +1616,7 @@ proc: BEGIN
                    ',target_shared_raw=', @S_target_shared));
 
     DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
+    DROP TEMPORARY TABLE IF EXISTS tmp_aura_heal_sync;
     DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_candidates;
   END IF;
 
@@ -1825,7 +1944,9 @@ proc: BEGIN
         END IF;
     END IF;
 
-    CALL helper.sp_EstimateItemLevels();
+    IF IFNULL(@ilvl_defer_estimate, 0) = 0 THEN
+      CALL helper.sp_EstimateItemLevels();
+    END IF;
   END IF;
 
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_library;
