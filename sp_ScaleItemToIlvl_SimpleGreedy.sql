@@ -83,6 +83,7 @@ proc: BEGIN
   SET @trade_statvalue_target := 0.0;
   SET @trade_budget_current := 0.0;
   SET @trade_budget_target := 0.0;
+  SET @trade_budget_delta := 0.0;
   IF @weapon_trade_entry IS NOT NULL AND @weapon_trade_entry = p_entry THEN
     SET @trade_dps_current := IFNULL(@weapon_trade_dps_current, 0.0);
     SET @trade_dps_target := IFNULL(@weapon_trade_dps_target, 0.0);
@@ -97,6 +98,16 @@ proc: BEGIN
   END IF;
   IF @trade_statvalue_target <> 0 THEN
     SET @trade_budget_target := POW(GREATEST(0, @trade_statvalue_target * @W_SD_ALL), 1.5);
+  END IF;
+  SET @trade_budget_delta := @trade_budget_target - @trade_budget_current;
+  IF @trade_budget_current <> 0 OR @trade_budget_target <> 0 OR @trade_budget_delta <> 0 THEN
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry, 'weapon_trade_budget', 'current', @trade_budget_current,
+            CONCAT('dps=', @trade_dps_current, ',stat=', @trade_statvalue_current)),
+           (p_entry, 'weapon_trade_budget', 'target', @trade_budget_target,
+            CONCAT('dps=', @trade_dps_target, ',stat=', @trade_statvalue_target)),
+           (p_entry, 'weapon_trade_budget', 'delta', @trade_budget_delta,
+            CONCAT('dps_delta=', @trade_dps_target - @trade_dps_current));
   END IF;
 
   /* basics */
@@ -709,7 +720,6 @@ proc: BEGIN
 
   SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res - @S_cur_bonus;
   SET @S_shared_cur := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus;
-  SET @S_shared_cur_effective := @S_shared_cur + @trade_budget_current;
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
   VALUES (p_entry, 'shared_budget_current', 'primaries', @S_cur_p,
@@ -721,9 +731,12 @@ proc: BEGIN
          (p_entry, 'shared_budget_current', 'bonus_armor', @S_cur_bonus,
           CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res, ',other=', @S_other));
   SET @S_target_shared := GREATEST(0.0, @S_tgt - @S_other);
-  SET @S_target_shared_effective := @S_target_shared + @trade_budget_target;
-  IF @S_shared_cur_effective > 0 THEN
-    SET @ratio_shared := @S_target_shared_effective / @S_shared_cur_effective;
+  /* weapon DPS trades live inside S_other, so subtract the delta that was already consumed
+     when the weapon scaler adjusted caster DPS; this keeps the shared stats from shrinking
+     a second time after the DPS loss has been accounted for */
+  SET @S_target_shared_effective := GREATEST(0.0, @S_target_shared - @trade_budget_delta);
+  IF @S_shared_cur > 0 THEN
+    SET @ratio_shared := @S_target_shared_effective / @S_shared_cur;
   ELSE
     SET @ratio_shared := 0.0;
   END IF;
