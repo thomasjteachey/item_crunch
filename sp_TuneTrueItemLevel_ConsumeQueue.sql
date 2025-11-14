@@ -8,6 +8,7 @@ BEGIN
   DECLARE v_apply   TINYINT(1);
   DECLARE done      INT DEFAULT 0;
   DECLARE v_needs_estimate TINYINT(1) DEFAULT 0;
+  DECLARE v_prev_defer_estimate TINYINT(1);
 
   /* cursor over a temp table we'll create before OPEN */
   DECLARE cur CURSOR FOR
@@ -16,6 +17,14 @@ BEGIN
     ORDER BY entry;
 
   DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    SET @ilvl_defer_estimate := v_prev_defer_estimate;
+    RESIGNAL;
+  END;
+
+  SET v_prev_defer_estimate := @ilvl_defer_estimate;
+  SET @ilvl_defer_estimate := 1;
 
   /* ===== minimal log table (ok after DECLAREs) ===== */
   CREATE TABLE IF NOT EXISTS helper.tune_ilvl_log (
@@ -144,6 +153,8 @@ BEGIN
   IF v_needs_estimate = 1 THEN
     CALL helper.sp_EstimateItemLevels();
   END IF;
+
+  SET @ilvl_defer_estimate := v_prev_defer_estimate;
 
   /* summary */
   SELECT status, COUNT(*) AS cnt
