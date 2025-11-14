@@ -115,90 +115,27 @@ proc: BEGIN
      derive the ilvl-based trade locally so we still feed the shared budget */
   IF @trade_dps_current = 0 AND @trade_dps_target = 0 THEN
     IF @class = 2 AND IFNULL(@caster_flag,0) = 1 AND IFNULL(@delay_ms,0) > 0 THEN
-      SET @trade_bracket := CASE
-        WHEN @subclass IN (0,4,7,15,13)      THEN '1H'
-        WHEN @subclass IN (1,5,6,8,10)       THEN '2H'
-        WHEN @subclass IN (2,3,18,19)        THEN 'RANGED'
-        ELSE NULL
-      END;
+      SELECT a, b INTO @trade_curve_a, @trade_curve_b
+      FROM tmp_qcurve_g
+      WHERE quality=@q;
 
-      IF @trade_bracket IS NOT NULL THEN
-        /* medians for the current ilvl */
-        SET @trade_src_median := NULL;
-        SELECT median_dps INTO @trade_src_median
-        FROM helper.weapon_median_dps_bracket
-        WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@ilvl_cur;
-
-        IF @trade_src_median IS NULL THEN
-          SET @trade_src_low_ilvl := (SELECT MAX(ilvl)
-                                      FROM helper.weapon_median_dps_bracket
-                                      WHERE bracket=@trade_bracket AND quality=@q AND ilvl < @ilvl_cur);
-          SET @trade_src_low_med := (SELECT median_dps
-                                      FROM helper.weapon_median_dps_bracket
-                                      WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@trade_src_low_ilvl);
-
-          SET @trade_src_high_ilvl := (SELECT MIN(ilvl)
-                                       FROM helper.weapon_median_dps_bracket
-                                       WHERE bracket=@trade_bracket AND quality=@q AND ilvl > @ilvl_cur);
-          SET @trade_src_high_med := (SELECT median_dps
-                                       FROM helper.weapon_median_dps_bracket
-                                       WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@trade_src_high_ilvl);
-
-          IF @trade_src_low_ilvl IS NOT NULL AND @trade_src_high_ilvl IS NOT NULL THEN
-            SET @trade_src_median := @trade_src_low_med +
-                                    (@trade_src_high_med - @trade_src_low_med) *
-                                    ((@ilvl_cur - @trade_src_low_ilvl) /
-                                     NULLIF(@trade_src_high_ilvl - @trade_src_low_ilvl,0));
-          ELSEIF @trade_src_low_ilvl IS NOT NULL THEN
-            SET @trade_src_median := @trade_src_low_med;
-          ELSEIF @trade_src_high_ilvl IS NOT NULL THEN
-            SET @trade_src_median := @trade_src_high_med;
-          END IF;
+      SET @trade_ratio := 1.0;
+      IF @trade_curve_a IS NOT NULL THEN
+        SET @trade_isv_cur := GREATEST(0.0, @trade_curve_a * @ilvl_cur + @trade_curve_b);
+        SET @trade_isv_tgt := GREATEST(0.0, @trade_curve_a * p_target_ilvl + @trade_curve_b);
+        IF @trade_isv_cur > 0 THEN
+          SET @trade_ratio := @trade_isv_tgt / @trade_isv_cur;
         END IF;
+      END IF;
 
-        /* medians for the target ilvl */
-        SET @trade_tgt_median := NULL;
-        SELECT median_dps INTO @trade_tgt_median
-        FROM helper.weapon_median_dps_bracket
-        WHERE bracket=@trade_bracket AND quality=@q AND ilvl=p_target_ilvl;
-
-        IF @trade_tgt_median IS NULL THEN
-          SET @trade_tgt_low_ilvl := (SELECT MAX(ilvl)
-                                      FROM helper.weapon_median_dps_bracket
-                                      WHERE bracket=@trade_bracket AND quality=@q AND ilvl < p_target_ilvl);
-          SET @trade_tgt_low_med := (SELECT median_dps
-                                      FROM helper.weapon_median_dps_bracket
-                                      WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@trade_tgt_low_ilvl);
-
-          SET @trade_tgt_high_ilvl := (SELECT MIN(ilvl)
-                                       FROM helper.weapon_median_dps_bracket
-                                       WHERE bracket=@trade_bracket AND quality=@q AND ilvl > p_target_ilvl);
-          SET @trade_tgt_high_med := (SELECT median_dps
-                                       FROM helper.weapon_median_dps_bracket
-                                       WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@trade_tgt_high_ilvl);
-
-          IF @trade_tgt_low_ilvl IS NOT NULL AND @trade_tgt_high_ilvl IS NOT NULL THEN
-            SET @trade_tgt_median := @trade_tgt_low_med +
-                                    (@trade_tgt_high_med - @trade_tgt_low_med) *
-                                    ((p_target_ilvl - @trade_tgt_low_ilvl) /
-                                     NULLIF(@trade_tgt_high_ilvl - @trade_tgt_low_ilvl,0));
-          ELSEIF @trade_tgt_low_ilvl IS NOT NULL THEN
-            SET @trade_tgt_median := @trade_tgt_low_med;
-          ELSEIF @trade_tgt_high_ilvl IS NOT NULL THEN
-            SET @trade_tgt_median := @trade_tgt_high_med;
-          END IF;
-        END IF;
-
-        IF @trade_src_median IS NULL THEN
-          SET @trade_src_median := IFNULL(@weapon_cur_dps, 0);
-        END IF;
-        IF @trade_tgt_median IS NULL THEN
-          SET @trade_tgt_median := @trade_src_median;
-        END IF;
-
-        SET @trade_dps_current := LEAST(GREATEST(@ilvl_cur - 60, 0), GREATEST(@trade_src_median, 0));
-        SET @trade_dps_target := LEAST(GREATEST(p_target_ilvl - 60, 0), GREATEST(@trade_tgt_median, 0));
-        SET @trade_hint_source := 'derived';
+      IF @trade_ratio > 0 THEN
+        SET @trade_src_dps := GREATEST(@ilvl_cur - 60, 0);
+        SET @trade_tgt_dps := GREATEST(p_target_ilvl - 60, 0);
+        SET @trade_physical_cur := GREATEST(@weapon_cur_dps, 0) + @trade_src_dps;
+        SET @trade_physical_tgt := GREATEST(@trade_physical_cur * @trade_ratio, 0);
+        SET @trade_dps_current := LEAST(@trade_src_dps, @trade_physical_cur);
+        SET @trade_dps_target := LEAST(@trade_tgt_dps, @trade_physical_tgt);
+        SET @trade_hint_source := 'derived_ratio';
       END IF;
     END IF;
   END IF;
