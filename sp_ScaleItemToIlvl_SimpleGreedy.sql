@@ -265,6 +265,8 @@ proc: BEGIN
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_library;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_heal_pairs;
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_heal;
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_sdall;
 
   SET @S_cur_a := 0.0;
   SET @aura_scale := 1.0;
@@ -405,26 +407,42 @@ proc: BEGIN
       PRIMARY KEY(spellid, heal_effect_index)
     ) ENGINE=Memory;
 
+    CREATE TEMPORARY TABLE tmp_item_auras_heal(
+      spellid INT UNSIGNED NOT NULL,
+      effect_index TINYINT NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(spellid, effect_index)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_item_auras_heal(spellid, effect_index, magnitude)
+    SELECT spellid, effect_index, magnitude
+    FROM tmp_item_auras_raw
+    WHERE aura_code = 'HEAL';
+
+    CREATE TEMPORARY TABLE tmp_item_auras_sdall(
+      spellid INT UNSIGNED NOT NULL,
+      effect_index TINYINT NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(spellid, effect_index)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_item_auras_sdall(spellid, effect_index, magnitude)
+    SELECT spellid, effect_index, magnitude
+    FROM tmp_item_auras_raw
+    WHERE aura_code = 'SDALL';
+
     INSERT INTO tmp_aura_heal_pairs(spellid, heal_effect_index, sd_effect_index)
-    SELECT pairs.spellid,
-           pairs.heal_effect_index,
-           pairs.sd_effect_index
-    FROM (
-      SELECT h.spellid,
-             h.effect_index AS heal_effect_index,
-             (
-               SELECT s.effect_index
-               FROM tmp_item_auras_raw s
-               WHERE s.spellid = h.spellid
-                 AND s.aura_code = 'SDALL'
-                 AND s.magnitude = h.magnitude
-               ORDER BY s.effect_index
-               LIMIT 1
-             ) AS sd_effect_index
-      FROM tmp_item_auras_raw h
-      WHERE h.aura_code = 'HEAL'
-    ) AS pairs
-    WHERE pairs.sd_effect_index IS NOT NULL;
+    SELECT h.spellid,
+           h.effect_index AS heal_effect_index,
+           MIN(sd.effect_index) AS sd_effect_index
+    FROM tmp_item_auras_heal h
+    JOIN tmp_item_auras_sdall sd
+      ON sd.spellid = h.spellid
+     AND sd.magnitude = h.magnitude
+    GROUP BY h.spellid, h.effect_index;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_heal;
+    DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_sdall;
 
     CREATE TEMPORARY TABLE tmp_aura_library(
       spellid INT UNSIGNED NOT NULL,
