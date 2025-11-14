@@ -1017,10 +1017,10 @@ proc: BEGIN
       LEAVE shared_scale_loop;
     END IF;
 
-    IF @S_target_shared = 0 THEN
+    IF @S_target_shared_effective = 0 THEN
       SET @ratio_adjust := 0.0;
     ELSE
-      SET @ratio_adjust := GREATEST(0.0, @S_target_shared / @S_after_shared);
+      SET @ratio_adjust := GREATEST(0.0, @S_target_shared_effective / @S_after_shared);
     END IF;
 
     SET @scale_adjust := CASE
@@ -1390,7 +1390,7 @@ proc: BEGIN
       LEAVE final_scale_loop;
     END IF;
 
-    SET @ratio_adjust := GREATEST(0.0, @S_target_shared / @S_final_shared);
+    SET @ratio_adjust := GREATEST(0.0, @S_target_shared_effective / @S_final_shared);
 
     SET @scale_adjust := CASE
       WHEN @ratio_adjust = 0 THEN 0
@@ -1412,14 +1412,20 @@ proc: BEGIN
           'shared_scale_plan',
           'base_scale',
           @shared_scale,
-          CONCAT('ratio=', @ratio_shared, ',iterations=', @scale_iteration, ',target_S=', @S_target_shared, ',post_loop_S=', @S_after_shared));
+          CONCAT('ratio=', @ratio_shared, ',iterations=', @scale_iteration,
+                 ',target_S_effective=', @S_target_shared_effective,
+                 ',target_S_raw=', @S_target_shared,
+                 ',post_loop_S=', @S_after_shared));
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
   VALUES (p_entry,
           'shared_scale_final',
           'final_scale',
           @final_scale,
-          CONCAT('iterations=', @scale_iteration_final, ',ratio_adjust=', @ratio_adjust, ',final_S=', @S_final_shared, ',target_S=', @S_target_shared));
+          CONCAT('iterations=', @scale_iteration_final, ',ratio_adjust=', @ratio_adjust,
+                 ',final_S=', @S_final_shared,
+                 ',target_S_effective=', @S_target_shared_effective,
+                 ',target_S_raw=', @S_target_shared));
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
   VALUES (p_entry, 'resist_update_plan', 'holy',   @res_holy_new,   CONCAT('old=', @res_holy)),
@@ -1466,7 +1472,9 @@ proc: BEGIN
             'aura_scale_plan',
             'base_scale',
             @aura_scale,
-            CONCAT('plan_S=', @S_final_a, ',target_shared=', @S_target_shared));
+            CONCAT('plan_S=', @S_final_a,
+                   ',target_shared_effective=', @S_target_shared_effective,
+                   ',target_shared_raw=', @S_target_shared));
 
     DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
     DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_candidates;
