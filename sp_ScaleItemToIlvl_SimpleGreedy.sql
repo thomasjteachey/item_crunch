@@ -102,6 +102,7 @@ proc: BEGIN
   SET @trade_budget_target := 0.0;
   SET @trade_budget_delta := 0.0;
   SET @trade_hint_source := 'none';
+  SET @trade_aura_code := NULL;
   IF @weapon_trade_entry IS NOT NULL AND @weapon_trade_entry = p_entry THEN
     SET @trade_dps_current := IFNULL(@weapon_trade_dps_current, 0.0);
     SET @trade_dps_target := IFNULL(@weapon_trade_dps_target, 0.0);
@@ -837,35 +838,19 @@ proc: BEGIN
           CONCAT('nontrade=', @S_shared_cur_nontrade));
   SET @S_target_shared_raw := @S_tgt - @S_other;
   SET @S_target_shared := GREATEST(0.0, @S_target_shared_raw);
-  /* weapon DPS trades use the shared budget, but their magnitudes get forced to the
-     Item level.docx 4*(ilvl-60) line. Compare the forced target to the "scale
-     everything" expectation so we can remove the surplus (or reserve space) before
-     computing the shared ratio. */
+  /* weapon DPS trades consume part of the shared budget, but their magnitudes are
+     forced to Item level.docx's 4*(ilvl-60) line. Reserve that slice up front so the
+     shared scaler only adjusts the stats that are still allowed to move. */
   SET @S_target_shared_trade := LEAST(GREATEST(0.0, @trade_budget_target), @S_target_shared);
   SET @S_target_shared_nontrade := GREATEST(0.0, @S_target_shared - @S_target_shared_trade);
-  IF @S_shared_cur > 0 THEN
-    SET @ratio_shared_total := @S_target_shared / @S_shared_cur;
-  ELSE
-    SET @ratio_shared_total := 0.0;
-  END IF;
-  SET @ratio_shared_total := GREATEST(0.0, @ratio_shared_total);
-  SET @trade_budget_expected_target := @S_shared_cur_trade * @ratio_shared_total;
-  SET @trade_budget_gap := @trade_budget_target - @trade_budget_expected_target;
-  SET @S_target_shared_effective := GREATEST(0.0, @S_target_shared - ABS(@trade_budget_gap));
-  IF @trade_budget_expected_target <> 0 OR @trade_budget_gap <> 0 THEN
-    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-    VALUES (p_entry, 'weapon_trade_budget', 'expected_target', @trade_budget_expected_target, NULL),
-           (p_entry, 'weapon_trade_budget', 'gap', @trade_budget_gap,
-            CONCAT('abs_gap=', ABS(@trade_budget_gap)));
-  END IF;
-  IF @S_shared_cur > 0 THEN
-    SET @ratio_shared := @S_target_shared_effective / @S_shared_cur;
+  IF @S_shared_cur_nontrade > 0 THEN
+    SET @ratio_shared := @S_target_shared_nontrade / @S_shared_cur_nontrade;
   ELSE
     SET @ratio_shared := 0.0;
   END IF;
   SET @ratio_shared := GREATEST(0.0, @ratio_shared);
 
-  IF @S_shared_cur > 0 THEN
+  IF @S_shared_cur_nontrade > 0 THEN
     SET @shared_scale := CASE
       WHEN @ratio_shared = 0 THEN 0
       ELSE POW(@ratio_shared, 2.0/3.0)
@@ -880,7 +865,7 @@ proc: BEGIN
   SET @S_final_a := @S_cur_a;
   SET @S_final_p := @S_cur_p;
   SET @S_final_bonus := @S_cur_bonus;
-  SET @S_after_shared := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus;
+  SET @S_after_shared := @S_shared_cur_nontrade;
   SET @scale_adjust := 1.0;
   SET @ratio_adjust := 1.0;
 
@@ -1109,16 +1094,18 @@ proc: BEGIN
       INTO @S_final_p
     FROM tmp_pnew;
 
-    SET @S_after_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus;
+    SET @S_after_shared := GREATEST(0.0,
+                                    @S_final_res + @S_final_a + @S_final_p + @S_final_bonus
+                                    - @S_target_shared_trade);
 
     IF @S_after_shared = 0 THEN
       LEAVE shared_scale_loop;
     END IF;
 
-    IF @S_target_shared_effective = 0 THEN
+    IF @S_target_shared_nontrade = 0 THEN
       SET @ratio_adjust := 0.0;
     ELSE
-      SET @ratio_adjust := GREATEST(0.0, @S_target_shared_effective / @S_after_shared);
+      SET @ratio_adjust := GREATEST(0.0, @S_target_shared_nontrade / @S_after_shared);
     END IF;
 
     SET @scale_adjust := CASE
@@ -1135,6 +1122,8 @@ proc: BEGIN
 
   SET @final_scale := GREATEST(0.0, @shared_scale);
   SET @scale_iteration_final := 0;
+  SET @S_final_trade := 0.0;
+  SET @S_final_adjustable := @S_shared_cur_nontrade;
 
   final_scale_loop: LOOP
     SET @scale_iteration_final := @scale_iteration_final + 1;
@@ -1521,15 +1510,22 @@ proc: BEGIN
     END IF;
 
     SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus;
+    SET @S_final_trade := 0.0;
+    IF @trade_aura_code = 'SDALL' THEN
+      SET @S_final_trade := POW(GREATEST(0, @aur_new_sd_all * @W_SD_ALL), 1.5);
+    ELSEIF @trade_aura_code = 'HEAL' THEN
+      SET @S_final_trade := POW(GREATEST(0, @aur_new_heal * @W_HEAL), 1.5);
+    END IF;
+    SET @S_final_adjustable := GREATEST(0.0, @S_final_shared - @S_final_trade);
 
     SET @ratio_adjust := 1.0;
     SET @scale_adjust := 1.0;
 
-    IF @S_final_shared = 0 THEN
+    IF @S_final_adjustable = 0 THEN
       LEAVE final_scale_loop;
     END IF;
 
-    SET @ratio_adjust := GREATEST(0.0, @S_target_shared_effective / @S_final_shared);
+    SET @ratio_adjust := GREATEST(0.0, @S_target_shared_nontrade / @S_final_adjustable);
 
     SET @scale_adjust := CASE
       WHEN @ratio_adjust = 0 THEN 0
@@ -1552,7 +1548,7 @@ proc: BEGIN
           'base_scale',
           @shared_scale,
           CONCAT('ratio=', @ratio_shared, ',iterations=', @scale_iteration,
-                 ',target_S_effective=', @S_target_shared_effective,
+                 ',target_S_effective=', @S_target_shared_nontrade,
                  ',target_S_raw=', @S_target_shared,
                  ',post_loop_S=', @S_after_shared));
 
@@ -1562,8 +1558,8 @@ proc: BEGIN
           'final_scale',
           @final_scale,
           CONCAT('iterations=', @scale_iteration_final, ',ratio_adjust=', @ratio_adjust,
-                 ',final_S=', @S_final_shared,
-                 ',target_S_effective=', @S_target_shared_effective,
+                 ',final_S=', @S_final_adjustable,
+                 ',target_S_effective=', @S_target_shared_nontrade,
                  ',target_S_raw=', @S_target_shared));
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
@@ -1612,7 +1608,7 @@ proc: BEGIN
             'base_scale',
             @aura_scale,
             CONCAT('plan_S=', @S_final_a,
-                   ',target_shared_effective=', @S_target_shared_effective,
+                   ',target_shared_effective=', @S_target_shared_nontrade,
                    ',target_shared_raw=', @S_target_shared));
 
     DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
