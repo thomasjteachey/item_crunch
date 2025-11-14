@@ -765,6 +765,8 @@ proc: BEGIN
 
   SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res - @S_cur_bonus;
   SET @S_shared_cur := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus;
+  SET @S_shared_cur_trade := LEAST(GREATEST(0.0, @trade_budget_current), @S_shared_cur);
+  SET @S_shared_cur_nontrade := GREATEST(0.0, @S_shared_cur - @S_shared_cur_trade);
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
   VALUES (p_entry, 'shared_budget_current', 'primaries', @S_cur_p,
@@ -774,14 +776,32 @@ proc: BEGIN
          (p_entry, 'shared_budget_current', 'resists', @S_cur_res,
           CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',bonus=', @S_cur_bonus, ',other=', @S_other)),
          (p_entry, 'shared_budget_current', 'bonus_armor', @S_cur_bonus,
-          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res, ',other=', @S_other));
+          CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res, ',other=', @S_other)),
+         (p_entry, 'shared_budget_current', 'trade_slice', @S_shared_cur_trade,
+          CONCAT('nontrade=', @S_shared_cur_nontrade));
   SET @S_target_shared_raw := @S_tgt - @S_other;
   SET @S_target_shared := GREATEST(0.0, @S_target_shared_raw);
-  /* weapon DPS trades consume S_other budget when they grow, but when a caster weapon
-     gives spell power back (target trade < current trade) the shared stats should still
-     shrink by the normal ilvl ratio. Only subtract positive deltas so we reserve space
-     when the spell power slice grows without inflating the shared target when it shrinks. */
-  SET @S_target_shared_effective := GREATEST(0.0, @S_target_shared_raw - GREATEST(0.0, @trade_budget_delta));
+  /* weapon DPS trades use the shared budget, but their magnitudes get forced to the
+     Item level.docx 4*(ilvl-60) line. Compare the forced target to the "scale
+     everything" expectation so we can remove the surplus (or reserve space) before
+     computing the shared ratio. */
+  SET @S_target_shared_trade := LEAST(GREATEST(0.0, @trade_budget_target), @S_target_shared);
+  SET @S_target_shared_nontrade := GREATEST(0.0, @S_target_shared - @S_target_shared_trade);
+  IF @S_shared_cur > 0 THEN
+    SET @ratio_shared_total := @S_target_shared / @S_shared_cur;
+  ELSE
+    SET @ratio_shared_total := 0.0;
+  END IF;
+  SET @ratio_shared_total := GREATEST(0.0, @ratio_shared_total);
+  SET @trade_budget_expected_target := @S_shared_cur_trade * @ratio_shared_total;
+  SET @trade_budget_gap := @trade_budget_target - @trade_budget_expected_target;
+  SET @S_target_shared_effective := GREATEST(0.0, @S_target_shared - ABS(@trade_budget_gap));
+  IF @trade_budget_expected_target <> 0 OR @trade_budget_gap <> 0 THEN
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
+    VALUES (p_entry, 'weapon_trade_budget', 'expected_target', @trade_budget_expected_target, NULL),
+           (p_entry, 'weapon_trade_budget', 'gap', @trade_budget_gap,
+            CONCAT('abs_gap=', ABS(@trade_budget_gap)));
+  END IF;
   IF @S_shared_cur > 0 THEN
     SET @ratio_shared := @S_target_shared_effective / @S_shared_cur;
   ELSE
