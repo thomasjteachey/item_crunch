@@ -81,7 +81,7 @@ BEGIN
     IF @is_weapon = 1 THEN
       BEGIN
         DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @dps_fail := 1;
-        CALL helper.sp_ScaleWeaponDpsToIlvl_ByBracketMedian(v_entry, v_target, v_apply);
+        CALL helper.sp_ScaleWeaponDpsToIlvl_ByBracketMedian(v_entry, v_target, v_apply, 0);
       END;
     END IF;
 
