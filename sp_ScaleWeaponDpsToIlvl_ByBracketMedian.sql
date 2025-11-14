@@ -9,7 +9,6 @@ main: BEGIN
   SET @weapon_trade_entry := NULL;
   SET @weapon_trade_dps_current := NULL;
   SET @weapon_trade_dps_target := NULL;
-  SET @weapon_trade_dps_delta := NULL;
 
   /* -------- 1) Load item & current DPS -------- */
   SELECT it.subclass, it.Quality, it.caster, it.delay,
@@ -133,13 +132,11 @@ main: BEGIN
     SET @weapon_trade_entry := p_entry;
     SET @weapon_trade_dps_current := @caster_minus_current;
     SET @weapon_trade_dps_target := @caster_minus_scaled;
-    SET @weapon_trade_dps_delta := @caster_minus_scaled - @caster_minus_current;
   ELSE
     /* non-caster weapons still stamp their entry so the next scaler run can safely ignore stale rows */
     SET @weapon_trade_entry := p_entry;
     SET @weapon_trade_dps_current := 0;
     SET @weapon_trade_dps_target := 0;
-    SET @weapon_trade_dps_delta := 0;
   END IF;
 
   /* -------- 6) Monotonic rule vs iLvl direction -------- */

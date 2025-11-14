@@ -83,12 +83,10 @@ proc: BEGIN
   SET @trade_statvalue_target := 0.0;
   SET @trade_budget_current := 0.0;
   SET @trade_budget_target := 0.0;
-  SET @trade_budget_delta := 0.0;
   IF @weapon_trade_entry IS NOT NULL AND @weapon_trade_entry = p_entry THEN
     SET @trade_dps_current := IFNULL(@weapon_trade_dps_current, 0.0);
     SET @trade_dps_target := IFNULL(@weapon_trade_dps_target, 0.0);
     SET @weapon_trade_entry := NULL;
-    SET @weapon_trade_dps_delta := NULL;
     SET @weapon_trade_dps_target := NULL;
     SET @weapon_trade_dps_current := NULL;
   END IF;
@@ -100,7 +98,6 @@ proc: BEGIN
   IF @trade_statvalue_target <> 0 THEN
     SET @trade_budget_target := POW(GREATEST(0, @trade_statvalue_target * @W_SD_ALL), 1.5);
   END IF;
-  SET @trade_budget_delta := @trade_budget_target - @trade_budget_current;
 
   /* basics */
   SELECT Quality, InventoryType, CAST(IFNULL(trueItemLevel,0) AS SIGNED)
@@ -711,6 +708,8 @@ proc: BEGIN
   END IF;
 
   SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res - @S_cur_bonus;
+  SET @S_shared_cur := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus;
+  SET @S_shared_cur_effective := @S_shared_cur + @trade_budget_current;
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
   VALUES (p_entry, 'shared_budget_current', 'primaries', @S_cur_p,
@@ -721,15 +720,16 @@ proc: BEGIN
           CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',bonus=', @S_cur_bonus, ',other=', @S_other)),
          (p_entry, 'shared_budget_current', 'bonus_armor', @S_cur_bonus,
           CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res, ',other=', @S_other));
-  SET @S_target_shared := GREATEST(0.0, @S_tgt - @S_other + @trade_budget_delta);
-  IF (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus) > 0 THEN
-    SET @ratio_shared := @S_target_shared / (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus);
+  SET @S_target_shared := GREATEST(0.0, @S_tgt - @S_other);
+  SET @S_target_shared_effective := @S_target_shared + @trade_budget_target;
+  IF @S_shared_cur_effective > 0 THEN
+    SET @ratio_shared := @S_target_shared_effective / @S_shared_cur_effective;
   ELSE
     SET @ratio_shared := 0.0;
   END IF;
   SET @ratio_shared := GREATEST(0.0, @ratio_shared);
 
-  IF (@S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus) > 0 THEN
+  IF @S_shared_cur > 0 THEN
     SET @shared_scale := CASE
       WHEN @ratio_shared = 0 THEN 0
       ELSE POW(@ratio_shared, 2.0/3.0)
