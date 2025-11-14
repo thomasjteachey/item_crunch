@@ -121,28 +121,50 @@ main: BEGIN
     SET @src_median := @cur_dps;
   END IF;
 
-  /* -------- 5) Caster DPS trade (Item level.docx "Weapons DPS Trade") -------- */
+  /* -------- 5) ItemValue ratio + caster DPS trade (Item level.docx) -------- */
+  SET @curve_a := CASE @q WHEN 2 THEN 1.21 WHEN 3 THEN 1.42 WHEN 4 THEN 1.64 ELSE NULL END;
+  SET @curve_b := CASE @q WHEN 2 THEN -9.8 WHEN 3 THEN -4.2 WHEN 4 THEN 11.2 ELSE NULL END;
+  SET @slot_ratio := 1.0;
+  IF @curve_a IS NOT NULL THEN
+    SET @isv_src := GREATEST(0.0, @curve_a * @src_ilvl + @curve_b);
+    SET @isv_tgt := GREATEST(0.0, @curve_a * @tgt_ilvl + @curve_b);
+    IF @isv_src > 0 THEN
+      SET @slot_ratio := @isv_tgt / @isv_src;
+    END IF;
+  END IF;
+  IF @slot_ratio IS NULL OR @slot_ratio <= 0 THEN
+    IF @src_median > 0 THEN
+      SET @slot_ratio := GREATEST(@tgt_median / NULLIF(@src_median,0), 0.0);
+    ELSE
+      SET @slot_ratio := 1.0;
+    END IF;
+  END IF;
+
   SET @caster_minus_current := 0;
   SET @caster_minus_scaled := 0;
-  SET @tgt_dps := @tgt_median;
+  SET @caster_trade_src_ilvl := 0;
+  SET @caster_trade_tgt_ilvl := 0;
+  SET @physical_dps_cur := GREATEST(@cur_dps, 0.0);
   IF @caster = 1 THEN
     /* Item level.docx "Weapons DPS Trade": SacrificedDPS ~= ilvl - 60 */
     SET @caster_trade_src_ilvl := GREATEST(@src_ilvl - 60, 0);
     SET @caster_trade_tgt_ilvl := GREATEST(@tgt_ilvl - 60, 0);
-    SET @caster_minus_current := LEAST(@caster_trade_src_ilvl, GREATEST(@src_median, 0));
-    SET @caster_minus_scaled := LEAST(@caster_trade_tgt_ilvl, GREATEST(@tgt_median, 0));
-    SET @tgt_dps := GREATEST(@tgt_median - @caster_minus_scaled, 0);
-
-    /* stash the caster trade delta so the greedy scaler can add/subtract the matching budget */
-    SET @weapon_trade_entry := p_entry;
-    SET @weapon_trade_dps_current := @caster_minus_current;
-    SET @weapon_trade_dps_target := @caster_minus_scaled;
-  ELSE
-    /* non-caster weapons still stamp their entry so the next scaler run can safely ignore stale rows */
-    SET @weapon_trade_entry := p_entry;
-    SET @weapon_trade_dps_current := 0;
-    SET @weapon_trade_dps_target := 0;
+    SET @physical_dps_cur := @physical_dps_cur + @caster_trade_src_ilvl;
   END IF;
+
+  SET @physical_dps_tgt := GREATEST(@physical_dps_cur * @slot_ratio, 0.0);
+
+  IF @caster = 1 THEN
+    SET @caster_minus_current := LEAST(@caster_trade_src_ilvl, @physical_dps_cur);
+    SET @caster_minus_scaled := LEAST(@caster_trade_tgt_ilvl, @physical_dps_tgt);
+  END IF;
+
+  SET @tgt_dps := GREATEST(@physical_dps_tgt - @caster_minus_scaled, 0);
+
+  /* stash the caster trade delta so the greedy scaler can add/subtract the matching budget */
+  SET @weapon_trade_entry := p_entry;
+  SET @weapon_trade_dps_current := @caster_minus_current;
+  SET @weapon_trade_dps_target := @caster_minus_scaled;
 
   /* -------- 6) Monotonic rule vs iLvl direction -------- */
   IF @tgt_ilvl > @src_ilvl AND @tgt_dps < @cur_dps THEN
@@ -186,5 +208,6 @@ main: BEGIN
     ROUND(@tgt_dps,3) AS tgt_dps,
     ROUND(@caster_minus_current,3) AS caster_minus_current,
     ROUND(@caster_minus_scaled,3) AS caster_minus_scaled,
-    ROUND(@r,6) AS ratio_applied;
+    ROUND(@r,6) AS ratio_applied,
+    ROUND(@slot_ratio,6) AS itemvalue_ratio;
 END
