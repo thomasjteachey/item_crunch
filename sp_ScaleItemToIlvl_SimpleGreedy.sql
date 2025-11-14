@@ -1825,7 +1825,9 @@ proc: BEGIN
         END IF;
     END IF;
 
-    CALL helper.sp_EstimateItemLevels();
+    IF IFNULL(@ilvl_defer_estimate, 0) = 0 THEN
+      CALL helper.sp_EstimateItemLevels();
+    END IF;
   END IF;
 
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_library;
