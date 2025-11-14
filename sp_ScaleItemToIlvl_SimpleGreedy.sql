@@ -76,6 +76,23 @@ proc: BEGIN
 
   SET @scale_auras := CASE WHEN IFNULL(p_scale_auras, 1) <> 0 THEN 1 ELSE 0 END;
 
+  /* basics (pull once so the weapon-trade fallback has everything it needs) */
+  SELECT class, subclass, Quality, InventoryType,
+         CAST(IFNULL(trueItemLevel,0) AS SIGNED) AS cur_ilvl,
+         IFNULL(caster,0) AS caster_flag,
+         IFNULL(delay,0) AS delay_ms,
+         ((
+            (COALESCE(dmg_min1,0)+COALESCE(dmg_max1,0))/2.0 +
+            (COALESCE(dmg_min2,0)+COALESCE(dmg_max2,0))/2.0
+          ) / NULLIF(delay/1000.0,0)) AS cur_dps
+    INTO @class, @subclass, @q, @inv, @ilvl_cur,
+         @caster_flag, @delay_ms, @weapon_cur_dps
+  FROM lplusworld.item_template
+  WHERE entry = p_entry;
+
+  IF @q IS NULL THEN LEAVE proc; END IF;
+  IF @q NOT IN (2,3,4) THEN LEAVE proc; END IF;
+
   /* optional weapon DPS trade delta (populated when the weapon scaler runs beforehand) */
   SET @trade_dps_current := 0.0;
   SET @trade_dps_target := 0.0;
@@ -84,12 +101,106 @@ proc: BEGIN
   SET @trade_budget_current := 0.0;
   SET @trade_budget_target := 0.0;
   SET @trade_budget_delta := 0.0;
+  SET @trade_hint_source := 'none';
   IF @weapon_trade_entry IS NOT NULL AND @weapon_trade_entry = p_entry THEN
     SET @trade_dps_current := IFNULL(@weapon_trade_dps_current, 0.0);
     SET @trade_dps_target := IFNULL(@weapon_trade_dps_target, 0.0);
     SET @weapon_trade_entry := NULL;
     SET @weapon_trade_dps_target := NULL;
     SET @weapon_trade_dps_current := NULL;
+    SET @trade_hint_source := 'weapon_proc';
+  END IF;
+  
+  /* fallback: if the weapon scaler didn't run but this entry is a caster weapon,
+     derive the ilvl-based trade locally so we still feed the shared budget */
+  IF @trade_dps_current = 0 AND @trade_dps_target = 0 THEN
+    IF @class = 2 AND IFNULL(@caster_flag,0) = 1 AND IFNULL(@delay_ms,0) > 0 THEN
+      SET @trade_bracket := CASE
+        WHEN @subclass IN (0,4,7,15,13)      THEN '1H'
+        WHEN @subclass IN (1,5,6,8,10)       THEN '2H'
+        WHEN @subclass IN (2,3,18,19)        THEN 'RANGED'
+        ELSE NULL
+      END;
+
+      IF @trade_bracket IS NOT NULL THEN
+        /* medians for the current ilvl */
+        SET @trade_src_median := NULL;
+        SELECT median_dps INTO @trade_src_median
+        FROM helper.weapon_median_dps_bracket
+        WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@ilvl_cur;
+
+        IF @trade_src_median IS NULL THEN
+          SET @trade_src_low_ilvl := (SELECT MAX(ilvl)
+                                      FROM helper.weapon_median_dps_bracket
+                                      WHERE bracket=@trade_bracket AND quality=@q AND ilvl < @ilvl_cur);
+          SET @trade_src_low_med := (SELECT median_dps
+                                      FROM helper.weapon_median_dps_bracket
+                                      WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@trade_src_low_ilvl);
+
+          SET @trade_src_high_ilvl := (SELECT MIN(ilvl)
+                                       FROM helper.weapon_median_dps_bracket
+                                       WHERE bracket=@trade_bracket AND quality=@q AND ilvl > @ilvl_cur);
+          SET @trade_src_high_med := (SELECT median_dps
+                                       FROM helper.weapon_median_dps_bracket
+                                       WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@trade_src_high_ilvl);
+
+          IF @trade_src_low_ilvl IS NOT NULL AND @trade_src_high_ilvl IS NOT NULL THEN
+            SET @trade_src_median := @trade_src_low_med +
+                                    (@trade_src_high_med - @trade_src_low_med) *
+                                    ((@ilvl_cur - @trade_src_low_ilvl) /
+                                     NULLIF(@trade_src_high_ilvl - @trade_src_low_ilvl,0));
+          ELSEIF @trade_src_low_ilvl IS NOT NULL THEN
+            SET @trade_src_median := @trade_src_low_med;
+          ELSEIF @trade_src_high_ilvl IS NOT NULL THEN
+            SET @trade_src_median := @trade_src_high_med;
+          END IF;
+        END IF;
+
+        /* medians for the target ilvl */
+        SET @trade_tgt_median := NULL;
+        SELECT median_dps INTO @trade_tgt_median
+        FROM helper.weapon_median_dps_bracket
+        WHERE bracket=@trade_bracket AND quality=@q AND ilvl=p_target_ilvl;
+
+        IF @trade_tgt_median IS NULL THEN
+          SET @trade_tgt_low_ilvl := (SELECT MAX(ilvl)
+                                      FROM helper.weapon_median_dps_bracket
+                                      WHERE bracket=@trade_bracket AND quality=@q AND ilvl < p_target_ilvl);
+          SET @trade_tgt_low_med := (SELECT median_dps
+                                      FROM helper.weapon_median_dps_bracket
+                                      WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@trade_tgt_low_ilvl);
+
+          SET @trade_tgt_high_ilvl := (SELECT MIN(ilvl)
+                                       FROM helper.weapon_median_dps_bracket
+                                       WHERE bracket=@trade_bracket AND quality=@q AND ilvl > p_target_ilvl);
+          SET @trade_tgt_high_med := (SELECT median_dps
+                                       FROM helper.weapon_median_dps_bracket
+                                       WHERE bracket=@trade_bracket AND quality=@q AND ilvl=@trade_tgt_high_ilvl);
+
+          IF @trade_tgt_low_ilvl IS NOT NULL AND @trade_tgt_high_ilvl IS NOT NULL THEN
+            SET @trade_tgt_median := @trade_tgt_low_med +
+                                    (@trade_tgt_high_med - @trade_tgt_low_med) *
+                                    ((p_target_ilvl - @trade_tgt_low_ilvl) /
+                                     NULLIF(@trade_tgt_high_ilvl - @trade_tgt_low_ilvl,0));
+          ELSEIF @trade_tgt_low_ilvl IS NOT NULL THEN
+            SET @trade_tgt_median := @trade_tgt_low_med;
+          ELSEIF @trade_tgt_high_ilvl IS NOT NULL THEN
+            SET @trade_tgt_median := @trade_tgt_high_med;
+          END IF;
+        END IF;
+
+        IF @trade_src_median IS NULL THEN
+          SET @trade_src_median := IFNULL(@weapon_cur_dps, 0);
+        END IF;
+        IF @trade_tgt_median IS NULL THEN
+          SET @trade_tgt_median := @trade_src_median;
+        END IF;
+
+        SET @trade_dps_current := LEAST(GREATEST(@ilvl_cur - 60, 0), GREATEST(@trade_src_median, 0));
+        SET @trade_dps_target := LEAST(GREATEST(p_target_ilvl - 60, 0), GREATEST(@trade_tgt_median, 0));
+        SET @trade_hint_source := 'derived';
+      END IF;
+    END IF;
   END IF;
   SET @trade_statvalue_current := @trade_dps_current * @WEAPON_DPS_TRADE_SD;
   SET @trade_statvalue_target := @trade_dps_target * @WEAPON_DPS_TRADE_SD;
@@ -109,15 +220,12 @@ proc: BEGIN
            (p_entry, 'weapon_trade_budget', 'delta', @trade_budget_delta,
             CONCAT('dps_delta=', @trade_dps_target - @trade_dps_current));
   END IF;
+  IF @trade_hint_source <> 'none' THEN
+    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_text)
+    VALUES (p_entry, 'weapon_trade_hint', 'source', @trade_hint_source);
+  END IF;
 
   /* basics */
-  SELECT Quality, InventoryType, CAST(IFNULL(trueItemLevel,0) AS SIGNED)
-    INTO @q, @inv, @ilvl_cur
-  FROM lplusworld.item_template
-  WHERE entry = p_entry;
-
-  IF @q NOT IN (2,3,4) THEN LEAVE proc; END IF;
-
   SELECT a,b INTO @a,@b FROM tmp_qcurve_g WHERE quality=@q;
   SET @slotmod := IFNULL((SELECT slotmod FROM tmp_slotmods_g WHERE inv=@inv),1.00);
 
@@ -730,11 +838,12 @@ proc: BEGIN
           CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',bonus=', @S_cur_bonus, ',other=', @S_other)),
          (p_entry, 'shared_budget_current', 'bonus_armor', @S_cur_bonus,
           CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res, ',other=', @S_other));
-  SET @S_target_shared := GREATEST(0.0, @S_tgt - @S_other);
+  SET @S_target_shared_raw := @S_tgt - @S_other;
+  SET @S_target_shared := GREATEST(0.0, @S_target_shared_raw);
   /* weapon DPS trades live inside S_other, so subtract the delta that was already consumed
      when the weapon scaler adjusted caster DPS; this keeps the shared stats from shrinking
      a second time after the DPS loss has been accounted for */
-  SET @S_target_shared_effective := GREATEST(0.0, @S_target_shared - @trade_budget_delta);
+  SET @S_target_shared_effective := GREATEST(0.0, @S_target_shared_raw - @trade_budget_delta);
   IF @S_shared_cur > 0 THEN
     SET @ratio_shared := @S_target_shared_effective / @S_shared_cur;
   ELSE
