@@ -419,13 +419,19 @@ BEGIN
   /* ===== Map to true ilvl via quality curves & write ===== */
   UPDATE lplusworld.item_template t
   JOIN tmp_item_slot_values sv ON sv.entry = t.entry
-  SET t.trueItemLevel = ROUND(
-        CASE CAST(sv.Quality AS UNSIGNED)
-          WHEN 2 THEN (sv.ItemSlotValue + 9.8)  / 1.21  /* Green */
-          WHEN 3 THEN (sv.ItemSlotValue + 4.2)  / 1.42  /* Blue  */
-          WHEN 4 THEN (sv.ItemSlotValue - 11.2) / 1.64  /* Epic  */
-          ELSE (sv.ItemSlotValue + 9.8) / 1.21
-        END
+  SET t.trueItemLevel = LEAST(
+        65535,
+        GREATEST(
+          0,
+          ROUND(
+            CASE CAST(sv.Quality AS UNSIGNED)
+              WHEN 2 THEN (sv.ItemSlotValue + 9.8)  / 1.21  /* Green */
+              WHEN 3 THEN (sv.ItemSlotValue + 4.2)  / 1.42  /* Blue  */
+              WHEN 4 THEN (sv.ItemSlotValue - 11.2) / 1.64  /* Epic  */
+              ELSE (sv.ItemSlotValue + 9.8) / 1.21
+            END
+          )
+        )
       );
       CALL helper.sp_EstimateItemLevels_WeaponsFromBracketMedians();
 END
