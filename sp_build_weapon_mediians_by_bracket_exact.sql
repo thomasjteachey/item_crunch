@@ -29,11 +29,15 @@ BEGIN
       (COALESCE(it.dmg_min1,0)+COALESCE(it.dmg_max1,0))/2.0 +
       (COALESCE(it.dmg_min2,0)+COALESCE(it.dmg_max2,0))/2.0
     ) / NULLIF(it.delay/1000.0,0)                AS dps,
-    /* bracket: non-caster 1H; non-caster 2H (no staves); ranged guns/bows/xbows */
+    /* bracket: non-caster 1H; non-caster 2H plus staves; ranged guns/bows/xbows/wands */
     CASE
-      WHEN it.caster = 0 AND it.subclass IN (0,4,7,15,13) THEN '1H'     /* Axe, Mace, Sword, Dagger, Fist */
-      WHEN it.caster = 0 AND it.subclass IN (1,5,6,8)     THEN '2H'     /* 2H Axe, 2H Mace, Polearm, 2H Sword */
-      WHEN it.subclass IN (2,3,18)                        THEN 'RANGED' /* Bow, Gun, Crossbow */
+      WHEN it.caster = 0 AND it.subclass IN (0,4,7,15,13)
+        THEN '1H'     /* Axe, Mace, Sword, Dagger, Fist */
+      WHEN (it.caster = 0 AND it.subclass IN (1,5,6,8))
+         OR it.subclass = 10
+        THEN '2H'     /* 2H Axe, 2H Mace, Polearm, 2H Sword, Staff */
+      WHEN it.subclass IN (2,3,18,19)
+        THEN 'RANGED' /* Bow, Gun, Crossbow, Wand */
       ELSE NULL
     END AS bracket
   FROM lplusworld.item_template it
