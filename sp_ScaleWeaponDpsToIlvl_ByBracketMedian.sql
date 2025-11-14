@@ -31,7 +31,10 @@ main: BEGIN
   /* -------- 2) Bracket assignment --------
      - 1H: Axe(0) Mace(4) Sword(7) Dagger(15) Fist(13)
      - 2H: 2H Axe(1) 2H Mace(5) Polearm(6) 2H Sword(8) Staff(10)
+       (staves intentionally share the sword medians so we don't have to rebuild
+        helper.weapon_median_dps_bracket just to add a "STAFF" bucket)
      - RANGED: Bow(2) Gun(3) Crossbow(18) Wand(19)
+       (wands likewise borrow the bow/gun medians)
      Exclude: Thrown(16), Fishing(20), and anything else outside these buckets */
   SET @bracket := CASE
     WHEN @subclass IN (0,4,7,15,13)      THEN '1H'
@@ -123,9 +126,11 @@ main: BEGIN
   SET @caster_minus_scaled := 0;
   SET @tgt_dps := @tgt_median;
   IF @caster = 1 THEN
-    SET @caster_minus_current := GREATEST(@src_median - @cur_dps, 0);
-    SET @minus_scale := CASE WHEN @src_median > 0 THEN @tgt_median / @src_median ELSE 1 END;
-    SET @caster_minus_scaled := @caster_minus_current * @minus_scale;
+    /* Item level.docx "Weapons DPS Trade": SacrificedDPS ~= ilvl - 60 */
+    SET @caster_trade_src_ilvl := GREATEST(@src_ilvl - 60, 0);
+    SET @caster_trade_tgt_ilvl := GREATEST(@tgt_ilvl - 60, 0);
+    SET @caster_minus_current := LEAST(@caster_trade_src_ilvl, GREATEST(@src_median, 0));
+    SET @caster_minus_scaled := LEAST(@caster_trade_tgt_ilvl, GREATEST(@tgt_median, 0));
     SET @tgt_dps := GREATEST(@tgt_median - @caster_minus_scaled, 0);
 
     /* stash the caster trade delta so the greedy scaler can add/subtract the matching budget */
