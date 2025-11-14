@@ -1,9 +1,15 @@
 CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_ScaleWeaponDpsToIlvl_ByBracketMedian`(
   IN p_entry        INT UNSIGNED,
   IN p_target_ilvl  INT UNSIGNED,     -- if NULL -> use COALESCE(trueItemLevel, ItemLevel)
-  IN p_apply        TINYINT           -- 1=apply, 0=preview
+  IN p_apply        TINYINT,          -- 1=apply, 0=preview
+  IN p_scale_item   TINYINT           -- nonzero = also call scaleItemLevelGreedy afterwards
 )
 main: BEGIN
+  /* reset the weapon trade session hints so stale data never bleeds into other entries */
+  SET @weapon_trade_entry := NULL;
+  SET @weapon_trade_dps_current := NULL;
+  SET @weapon_trade_dps_target := NULL;
+
   /* -------- 1) Load item & current DPS -------- */
   SELECT it.subclass, it.Quality, it.caster, it.delay,
          COALESCE(it.trueItemLevel, it.ItemLevel) AS src_ilvl,
@@ -19,16 +25,21 @@ main: BEGIN
     SELECT 'skip' AS status, 'no dps' AS reason, p_entry AS entry; LEAVE main;
   END IF;
 
-  /* -------- 2) Bracket assignment (non-caster only) --------
+  /* coerce helper flag once up front */
+  SET @scale_item := CASE WHEN IFNULL(p_scale_item,0) <> 0 THEN 1 ELSE 0 END;
+
+  /* -------- 2) Bracket assignment --------
      - 1H: Axe(0) Mace(4) Sword(7) Dagger(15) Fist(13)
-     - 2H: 2H Axe(1) 2H Mace(5) Polearm(6) 2H Sword(8)   (no Staves(10))
-     - RANGED: Bow(2) Gun(3) Crossbow(18)
-     Exclude: caster=1, Staff(10), Wand(19), Thrown(16), Fishing(20) */
+     - 2H: 2H Axe(1) 2H Mace(5) Polearm(6) 2H Sword(8) Staff(10)
+       (staves intentionally share the sword medians so we don't have to rebuild
+        helper.weapon_median_dps_bracket just to add a "STAFF" bucket)
+     - RANGED: Bow(2) Gun(3) Crossbow(18) Wand(19)
+       (wands likewise borrow the bow/gun medians)
+     Exclude: Thrown(16), Fishing(20), and anything else outside these buckets */
   SET @bracket := CASE
-    WHEN @caster = 1 THEN NULL
-    WHEN @subclass IN (0,4,7,15,13) THEN '1H'
-    WHEN @subclass IN (1,5,6,8)     THEN '2H'
-    WHEN @subclass IN (2,3,18)      THEN 'RANGED'
+    WHEN @subclass IN (0,4,7,15,13)      THEN '1H'
+    WHEN @subclass IN (1,5,6,8,10)       THEN '2H'
+    WHEN @subclass IN (2,3,18,19)        THEN 'RANGED'
     ELSE NULL
   END;
 
@@ -75,19 +86,77 @@ main: BEGIN
     END IF;
   END IF;
 
-  /* -------- 5) Monotonic rule vs iLvl direction -------- */
-  IF @tgt_ilvl > @src_ilvl AND @tgt_median < @cur_dps THEN
-    SET @tgt_median := @cur_dps;
-  ELSEIF @tgt_ilvl < @src_ilvl AND @tgt_median > @cur_dps THEN
-    SET @tgt_median := @cur_dps;
+  /* -------- 4b) Median for the source ilvl (needed to recover caster DPS trade) -------- */
+  SET @src_median := NULL;
+  SELECT median_dps INTO @src_median
+  FROM helper.weapon_median_dps_bracket
+  WHERE bracket=@bracket AND quality=@q AND ilvl=@src_ilvl;
+
+  IF @src_median IS NULL THEN
+    SET @src_low_ilvl := (SELECT MAX(ilvl) FROM helper.weapon_median_dps_bracket
+                          WHERE bracket=@bracket AND quality=@q AND ilvl < @src_ilvl);
+    SET @src_low_med  := (SELECT median_dps FROM helper.weapon_median_dps_bracket
+                          WHERE bracket=@bracket AND quality=@q AND ilvl=@src_low_ilvl);
+
+    SET @src_high_ilvl := (SELECT MIN(ilvl) FROM helper.weapon_median_dps_bracket
+                           WHERE bracket=@bracket AND quality=@q AND ilvl > @src_ilvl);
+    SET @src_high_med  := (SELECT median_dps FROM helper.weapon_median_dps_bracket
+                           WHERE bracket=@bracket AND quality=@q AND ilvl=@src_high_ilvl);
+
+    IF @src_low_ilvl IS NOT NULL AND @src_high_ilvl IS NOT NULL THEN
+      SET @src_median := @src_low_med +
+                         (@src_high_med - @src_low_med) *
+                         ((@src_ilvl - @src_low_ilvl) / NULLIF(@src_high_ilvl - @src_low_ilvl,0));
+    ELSEIF @src_low_ilvl IS NOT NULL THEN
+      SET @src_median := @src_low_med;
+    ELSEIF @src_high_ilvl IS NOT NULL THEN
+      SET @src_median := @src_high_med;
+    ELSE
+      SET @src_median := NULL;
+    END IF;
   END IF;
 
-  /* -------- 6) Scale factor & apply (range scales linearly) -------- */
+  IF @src_median IS NULL THEN
+    /* fall back to the actual DPS so caster subtraction becomes zero instead of NULL */
+    SET @src_median := @cur_dps;
+  END IF;
+
+  /* -------- 5) Caster DPS trade (Item level.docx "Weapons DPS Trade") -------- */
+  SET @caster_minus_current := 0;
+  SET @caster_minus_scaled := 0;
+  SET @tgt_dps := @tgt_median;
+  IF @caster = 1 THEN
+    /* Item level.docx "Weapons DPS Trade": SacrificedDPS ~= ilvl - 60 */
+    SET @caster_trade_src_ilvl := GREATEST(@src_ilvl - 60, 0);
+    SET @caster_trade_tgt_ilvl := GREATEST(@tgt_ilvl - 60, 0);
+    SET @caster_minus_current := LEAST(@caster_trade_src_ilvl, GREATEST(@src_median, 0));
+    SET @caster_minus_scaled := LEAST(@caster_trade_tgt_ilvl, GREATEST(@tgt_median, 0));
+    SET @tgt_dps := GREATEST(@tgt_median - @caster_minus_scaled, 0);
+
+    /* stash the caster trade delta so the greedy scaler can add/subtract the matching budget */
+    SET @weapon_trade_entry := p_entry;
+    SET @weapon_trade_dps_current := @caster_minus_current;
+    SET @weapon_trade_dps_target := @caster_minus_scaled;
+  ELSE
+    /* non-caster weapons still stamp their entry so the next scaler run can safely ignore stale rows */
+    SET @weapon_trade_entry := p_entry;
+    SET @weapon_trade_dps_current := 0;
+    SET @weapon_trade_dps_target := 0;
+  END IF;
+
+  /* -------- 6) Monotonic rule vs iLvl direction -------- */
+  IF @tgt_ilvl > @src_ilvl AND @tgt_dps < @cur_dps THEN
+    SET @tgt_dps := @cur_dps;
+  ELSEIF @tgt_ilvl < @src_ilvl AND @tgt_dps > @cur_dps THEN
+    SET @tgt_dps := @cur_dps;
+  END IF;
+
+  /* -------- 7) Scale factor & apply (range scales linearly) -------- */
   IF @cur_dps = 0 THEN
     SELECT 'skip' AS status, 'current dps zero' AS reason, p_entry AS entry; LEAVE main;
   END IF;
 
-  SET @r := @tgt_median / @cur_dps;
+  SET @r := @tgt_dps / @cur_dps;
 
   IF p_apply = 1 THEN
     UPDATE lplusworld.item_template
@@ -98,7 +167,12 @@ main: BEGIN
     WHERE entry = p_entry;
   END IF;
 
-  /* -------- 7) Result preview -------- */
+  /* optional cascade so the greedy scaler immediately rebalances stats/auras */
+  IF @scale_item = 1 THEN
+    CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(p_entry, @tgt_ilvl, p_apply, 1);
+  END IF;
+
+  /* -------- 8) Result preview -------- */
   SELECT
     CASE WHEN p_apply=1 THEN 'applied' ELSE 'preview' END AS status,
     p_entry AS entry,
@@ -108,6 +182,9 @@ main: BEGIN
     @tgt_ilvl AS tgt_ilvl,
     @median_source AS median_source,
     ROUND(@cur_dps,3) AS cur_dps,
-    ROUND(@tgt_median,3) AS tgt_dps,
+    ROUND(@tgt_median,3) AS tgt_median,
+    ROUND(@tgt_dps,3) AS tgt_dps,
+    ROUND(@caster_minus_current,3) AS caster_minus_current,
+    ROUND(@caster_minus_scaled,3) AS caster_minus_scaled,
     ROUND(@r,6) AS ratio_applied;
 END
