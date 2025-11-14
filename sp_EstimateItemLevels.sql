@@ -26,6 +26,7 @@ BEGIN
   SET @W_DAMAGE_SHIELD := 720;        -- Damage shield
   SET @W_MP5     := 550;      -- Mana per 5s
   SET @W_HP5     := 550;      -- Health per 5s (same budget per your rule)
+  SET @WEAPON_DPS_TRADE_SD := 4.0;  -- Item level.docx "Weapons DPS Trade" (spell dmg+healing)
 
   /* ===== DBC Auras (Classic) ===== */
   SET @AURA_AP := 99;    SET @AURA_RAP := 124;
@@ -80,6 +81,29 @@ BEGIN
          + POW(GREATEST(0, IFNULL(it.shadow_res,0) * @W_RESIST), 1.5)
          + POW(GREATEST(0, IFNULL(it.arcane_res,0) * @W_RESIST), 1.5)
   FROM lplusworld.item_template it;
+
+  /* ===== Weapon DPS trade budget (caster weapons only) ===== */
+  DROP TEMPORARY TABLE IF EXISTS tmp_weapon_trade_terms;
+  CREATE TEMPORARY TABLE tmp_weapon_trade_terms(
+    entry INT UNSIGNED NOT NULL PRIMARY KEY,
+    term_sum DOUBLE NOT NULL
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_weapon_trade_terms(entry, term_sum)
+  SELECT it.entry,
+         POW(
+           GREATEST(
+             0,
+             (GREATEST(COALESCE(it.trueItemLevel, it.ItemLevel), 0) - 60)
+             * @WEAPON_DPS_TRADE_SD * @W_SD_ALL
+           ),
+           1.5
+         ) AS term_sum
+  FROM lplusworld.item_template it
+  WHERE it.class = 2
+    AND IFNULL(it.caster,0) = 1
+    AND IFNULL(it.delay,0) > 0
+    AND it.Quality IN (2,3,4);
 
   /* ===== On-equip spells (distinct equips only) ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
@@ -342,9 +366,10 @@ BEGIN
 
   INSERT INTO tmp_item_values(entry, ItemValue)
   SELECT b.entry,
-         (POW(GREATEST(0, b.term_sum + IFNULL(a.term_sum,0)), 2.0/3.0) / 100.0) AS ItemValue
+         (POW(GREATEST(0, b.term_sum + IFNULL(a.term_sum,0) + IFNULL(w.term_sum,0)), 2.0/3.0) / 100.0) AS ItemValue
   FROM tmp_item_base_terms b
-  LEFT JOIN tmp_item_aura_terms a ON a.entry = b.entry;
+  LEFT JOIN tmp_item_aura_terms a ON a.entry = b.entry
+  LEFT JOIN tmp_weapon_trade_terms w ON w.entry = b.entry;
 
   /* ===== Slot modifier => ItemSlotValue & carry Quality ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_slot_values;
