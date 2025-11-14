@@ -893,6 +893,65 @@ proc: BEGIN
                  x.effect_index
       ) AS z;
 
+      /* enforce the Item level.docx weapon trade target so SD/HEAL auras land exactly on
+         4 * (ilvl - 60) instead of inheriting the shared scaling ratio */
+      IF @trade_statvalue_current <> 0 OR @trade_statvalue_target <> 0 THEN
+        SET @trade_target_mag := ROUND(GREATEST(0.0, @trade_statvalue_target));
+        SET @trade_aura_code := NULL;
+        IF EXISTS (SELECT 1 FROM tmp_aura_updates WHERE aura_code='SDALL') THEN
+          SET @trade_aura_code := 'SDALL';
+        ELSEIF EXISTS (SELECT 1 FROM tmp_aura_updates WHERE aura_code='HEAL') THEN
+          SET @trade_aura_code := 'HEAL';
+        END IF;
+
+        IF @trade_aura_code IS NOT NULL THEN
+          SET @trade_plan_sum := IFNULL((SELECT SUM(desired_magnitude)
+                                         FROM tmp_aura_updates
+                                         WHERE aura_code=@trade_aura_code), 0);
+          IF @trade_plan_sum > 0 OR @trade_target_mag = 0 THEN
+            SET @trade_scale_force := CASE
+              WHEN @trade_plan_sum = 0 THEN 0.0
+              ELSE @trade_target_mag / @trade_plan_sum
+            END;
+            UPDATE tmp_aura_updates
+               SET desired_magnitude = CASE
+                                         WHEN @trade_target_mag = 0 THEN 0
+                                         ELSE ROUND(GREATEST(0.0, desired_magnitude * @trade_scale_force))
+                                       END,
+                   new_magnitude = CASE
+                                     WHEN @trade_target_mag = 0 THEN 0
+                                     ELSE ROUND(GREATEST(0.0, new_magnitude * @trade_scale_force))
+                                   END
+             WHERE aura_code=@trade_aura_code;
+
+            SET @trade_plan_sum := IFNULL((SELECT SUM(desired_magnitude)
+                                           FROM tmp_aura_updates
+                                           WHERE aura_code=@trade_aura_code), 0);
+            SET @trade_adjust_diff := @trade_target_mag - @trade_plan_sum;
+
+            WHILE @trade_adjust_diff > 0 DO
+              UPDATE tmp_aura_updates
+                 SET desired_magnitude = desired_magnitude + 1,
+                     new_magnitude = new_magnitude + 1
+               WHERE aura_code=@trade_aura_code
+               ORDER BY aura_rank
+               LIMIT 1;
+              SET @trade_adjust_diff := @trade_adjust_diff - 1;
+            END WHILE;
+
+            WHILE @trade_adjust_diff < 0 DO
+              UPDATE tmp_aura_updates
+                 SET desired_magnitude = GREATEST(0, desired_magnitude - 1),
+                     new_magnitude = GREATEST(0, new_magnitude - 1)
+               WHERE aura_code=@trade_aura_code
+               ORDER BY aura_rank DESC
+               LIMIT 1;
+              SET @trade_adjust_diff := @trade_adjust_diff + 1;
+            END WHILE;
+          END IF;
+        END IF;
+      END IF;
+
       SET @aur_plan_ap := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='AP'), 0.0);
       SET @aur_plan_rap := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='RAP'), 0.0);
       SET @aur_plan_apversus := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='APVERSUS'), 0.0);
@@ -1066,6 +1125,63 @@ proc: BEGIN
                  CASE WHEN @aura_direction >= 1 THEN x.magnitude ELSE -x.magnitude END,
                  x.effect_index
       ) AS z;
+
+      IF @trade_statvalue_current <> 0 OR @trade_statvalue_target <> 0 THEN
+        SET @trade_target_mag := ROUND(GREATEST(0.0, @trade_statvalue_target));
+        SET @trade_aura_code := NULL;
+        IF EXISTS (SELECT 1 FROM tmp_aura_updates WHERE aura_code='SDALL') THEN
+          SET @trade_aura_code := 'SDALL';
+        ELSEIF EXISTS (SELECT 1 FROM tmp_aura_updates WHERE aura_code='HEAL') THEN
+          SET @trade_aura_code := 'HEAL';
+        END IF;
+
+        IF @trade_aura_code IS NOT NULL THEN
+          SET @trade_plan_sum := IFNULL((SELECT SUM(desired_magnitude)
+                                         FROM tmp_aura_updates
+                                         WHERE aura_code=@trade_aura_code), 0);
+          IF @trade_plan_sum > 0 OR @trade_target_mag = 0 THEN
+            SET @trade_scale_force := CASE
+              WHEN @trade_plan_sum = 0 THEN 0.0
+              ELSE @trade_target_mag / @trade_plan_sum
+            END;
+            UPDATE tmp_aura_updates
+               SET desired_magnitude = CASE
+                                         WHEN @trade_target_mag = 0 THEN 0
+                                         ELSE ROUND(GREATEST(0.0, desired_magnitude * @trade_scale_force))
+                                       END,
+                   new_magnitude = CASE
+                                     WHEN @trade_target_mag = 0 THEN 0
+                                     ELSE ROUND(GREATEST(0.0, new_magnitude * @trade_scale_force))
+                                   END
+             WHERE aura_code=@trade_aura_code;
+
+            SET @trade_plan_sum := IFNULL((SELECT SUM(desired_magnitude)
+                                           FROM tmp_aura_updates
+                                           WHERE aura_code=@trade_aura_code), 0);
+            SET @trade_adjust_diff := @trade_target_mag - @trade_plan_sum;
+
+            WHILE @trade_adjust_diff > 0 DO
+              UPDATE tmp_aura_updates
+                 SET desired_magnitude = desired_magnitude + 1,
+                     new_magnitude = new_magnitude + 1
+               WHERE aura_code=@trade_aura_code
+               ORDER BY aura_rank
+               LIMIT 1;
+              SET @trade_adjust_diff := @trade_adjust_diff - 1;
+            END WHILE;
+
+            WHILE @trade_adjust_diff < 0 DO
+              UPDATE tmp_aura_updates
+                 SET desired_magnitude = GREATEST(0, desired_magnitude - 1),
+                     new_magnitude = GREATEST(0, new_magnitude - 1)
+               WHERE aura_code=@trade_aura_code
+               ORDER BY aura_rank DESC
+               LIMIT 1;
+              SET @trade_adjust_diff := @trade_adjust_diff + 1;
+            END WHILE;
+          END IF;
+        END IF;
+      END IF;
 
       SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
 
