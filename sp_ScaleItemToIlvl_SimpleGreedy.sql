@@ -102,6 +102,7 @@ proc: BEGIN
   SET @trade_budget_target := 0.0;
   SET @trade_budget_delta := 0.0;
   SET @trade_hint_source := 'none';
+  SET @trade_aura_code := NULL;
   IF @weapon_trade_entry IS NOT NULL AND @weapon_trade_entry = p_entry THEN
     SET @trade_dps_current := IFNULL(@weapon_trade_dps_current, 0.0);
     SET @trade_dps_target := IFNULL(@weapon_trade_dps_target, 0.0);
@@ -264,6 +265,10 @@ proc: BEGIN
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_updates;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_library;
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_heal_pairs;
+  DROP TEMPORARY TABLE IF EXISTS tmp_aura_heal_sync;
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_heal;
+  DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_sdall;
 
   SET @S_cur_a := 0.0;
   SET @aura_scale := 1.0;
@@ -396,6 +401,58 @@ proc: BEGIN
     WHERE aura_code IS NOT NULL
       AND magnitude IS NOT NULL
       AND magnitude > 0;
+
+    CREATE TEMPORARY TABLE tmp_aura_heal_pairs(
+      spellid INT UNSIGNED NOT NULL,
+      heal_effect_index TINYINT NOT NULL,
+      sd_effect_index TINYINT NOT NULL,
+      PRIMARY KEY(spellid, heal_effect_index)
+    ) ENGINE=Memory;
+
+    CREATE TEMPORARY TABLE tmp_aura_heal_sync(
+      spellid INT UNSIGNED NOT NULL,
+      heal_effect_index TINYINT NOT NULL,
+      sdall_desired INT NOT NULL,
+      sdall_new INT NOT NULL,
+      PRIMARY KEY(spellid, heal_effect_index)
+    ) ENGINE=Memory;
+
+    CREATE TEMPORARY TABLE tmp_item_auras_heal(
+      spellid INT UNSIGNED NOT NULL,
+      effect_index TINYINT NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(spellid, effect_index)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_item_auras_heal(spellid, effect_index, magnitude)
+    SELECT spellid, effect_index, magnitude
+    FROM tmp_item_auras_raw
+    WHERE aura_code = 'HEAL';
+
+    CREATE TEMPORARY TABLE tmp_item_auras_sdall(
+      spellid INT UNSIGNED NOT NULL,
+      effect_index TINYINT NOT NULL,
+      magnitude INT NOT NULL,
+      PRIMARY KEY(spellid, effect_index)
+    ) ENGINE=Memory;
+
+    INSERT INTO tmp_item_auras_sdall(spellid, effect_index, magnitude)
+    SELECT spellid, effect_index, magnitude
+    FROM tmp_item_auras_raw
+    WHERE aura_code = 'SDALL';
+
+    INSERT INTO tmp_aura_heal_pairs(spellid, heal_effect_index, sd_effect_index)
+    SELECT h.spellid,
+           h.effect_index AS heal_effect_index,
+           MIN(sd.effect_index) AS sd_effect_index
+    FROM tmp_item_auras_heal h
+    JOIN tmp_item_auras_sdall sd
+      ON sd.spellid = h.spellid
+     AND sd.magnitude = h.magnitude
+    GROUP BY h.spellid, h.effect_index;
+
+    DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_heal;
+    DROP TEMPORARY TABLE IF EXISTS tmp_item_auras_sdall;
 
     CREATE TEMPORARY TABLE tmp_aura_library(
       spellid INT UNSIGNED NOT NULL,
@@ -781,35 +838,19 @@ proc: BEGIN
           CONCAT('nontrade=', @S_shared_cur_nontrade));
   SET @S_target_shared_raw := @S_tgt - @S_other;
   SET @S_target_shared := GREATEST(0.0, @S_target_shared_raw);
-  /* weapon DPS trades use the shared budget, but their magnitudes get forced to the
-     Item level.docx 4*(ilvl-60) line. Compare the forced target to the "scale
-     everything" expectation so we can remove the surplus (or reserve space) before
-     computing the shared ratio. */
+  /* weapon DPS trades consume part of the shared budget, but their magnitudes are
+     forced to Item level.docx's 4*(ilvl-60) line. Reserve that slice up front so the
+     shared scaler only adjusts the stats that are still allowed to move. */
   SET @S_target_shared_trade := LEAST(GREATEST(0.0, @trade_budget_target), @S_target_shared);
   SET @S_target_shared_nontrade := GREATEST(0.0, @S_target_shared - @S_target_shared_trade);
-  IF @S_shared_cur > 0 THEN
-    SET @ratio_shared_total := @S_target_shared / @S_shared_cur;
-  ELSE
-    SET @ratio_shared_total := 0.0;
-  END IF;
-  SET @ratio_shared_total := GREATEST(0.0, @ratio_shared_total);
-  SET @trade_budget_expected_target := @S_shared_cur_trade * @ratio_shared_total;
-  SET @trade_budget_gap := @trade_budget_target - @trade_budget_expected_target;
-  SET @S_target_shared_effective := GREATEST(0.0, @S_target_shared - ABS(@trade_budget_gap));
-  IF @trade_budget_expected_target <> 0 OR @trade_budget_gap <> 0 THEN
-    INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-    VALUES (p_entry, 'weapon_trade_budget', 'expected_target', @trade_budget_expected_target, NULL),
-           (p_entry, 'weapon_trade_budget', 'gap', @trade_budget_gap,
-            CONCAT('abs_gap=', ABS(@trade_budget_gap)));
-  END IF;
-  IF @S_shared_cur > 0 THEN
-    SET @ratio_shared := @S_target_shared_effective / @S_shared_cur;
+  IF @S_shared_cur_nontrade > 0 THEN
+    SET @ratio_shared := @S_target_shared_nontrade / @S_shared_cur_nontrade;
   ELSE
     SET @ratio_shared := 0.0;
   END IF;
   SET @ratio_shared := GREATEST(0.0, @ratio_shared);
 
-  IF @S_shared_cur > 0 THEN
+  IF @S_shared_cur_nontrade > 0 THEN
     SET @shared_scale := CASE
       WHEN @ratio_shared = 0 THEN 0
       ELSE POW(@ratio_shared, 2.0/3.0)
@@ -824,7 +865,7 @@ proc: BEGIN
   SET @S_final_a := @S_cur_a;
   SET @S_final_p := @S_cur_p;
   SET @S_final_bonus := @S_cur_bonus;
-  SET @S_after_shared := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus;
+  SET @S_after_shared := @S_shared_cur_nontrade;
   SET @scale_adjust := 1.0;
   SET @ratio_adjust := 1.0;
 
@@ -973,6 +1014,27 @@ proc: BEGIN
         END IF;
       END IF;
 
+      DELETE FROM tmp_aura_heal_sync;
+
+      INSERT INTO tmp_aura_heal_sync(spellid, heal_effect_index, sdall_desired, sdall_new)
+      SELECT hp.spellid,
+             hp.heal_effect_index,
+             s.desired_magnitude,
+             s.new_magnitude
+      FROM tmp_aura_updates s
+      JOIN tmp_aura_heal_pairs hp
+        ON hp.spellid = s.spellid
+       AND hp.sd_effect_index = s.effect_index
+      WHERE s.aura_code = 'SDALL';
+
+      UPDATE tmp_aura_updates h
+      JOIN tmp_aura_heal_sync sync
+        ON sync.spellid = h.spellid
+       AND sync.heal_effect_index = h.effect_index
+      SET h.desired_magnitude = sync.sdall_desired,
+          h.new_magnitude = sync.sdall_desired
+      WHERE h.aura_code = 'HEAL';
+
       SET @aur_plan_ap := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='AP'), 0.0);
       SET @aur_plan_rap := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='RAP'), 0.0);
       SET @aur_plan_apversus := IFNULL((SELECT SUM(desired_magnitude) FROM tmp_aura_updates WHERE aura_code='APVERSUS'), 0.0);
@@ -1032,16 +1094,18 @@ proc: BEGIN
       INTO @S_final_p
     FROM tmp_pnew;
 
-    SET @S_after_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus;
+    SET @S_after_shared := GREATEST(0.0,
+                                    @S_final_res + @S_final_a + @S_final_p + @S_final_bonus
+                                    - @S_target_shared_trade);
 
     IF @S_after_shared = 0 THEN
       LEAVE shared_scale_loop;
     END IF;
 
-    IF @S_target_shared_effective = 0 THEN
+    IF @S_target_shared_nontrade = 0 THEN
       SET @ratio_adjust := 0.0;
     ELSE
-      SET @ratio_adjust := GREATEST(0.0, @S_target_shared_effective / @S_after_shared);
+      SET @ratio_adjust := GREATEST(0.0, @S_target_shared_nontrade / @S_after_shared);
     END IF;
 
     SET @scale_adjust := CASE
@@ -1058,6 +1122,8 @@ proc: BEGIN
 
   SET @final_scale := GREATEST(0.0, @shared_scale);
   SET @scale_iteration_final := 0;
+  SET @S_final_trade := 0.0;
+  SET @S_final_adjustable := @S_shared_cur_nontrade;
 
   final_scale_loop: LOOP
     SET @scale_iteration_final := @scale_iteration_final + 1;
@@ -1199,10 +1265,31 @@ proc: BEGIN
                ORDER BY aura_rank DESC
                LIMIT 1;
               SET @trade_adjust_diff := @trade_adjust_diff + 1;
-            END WHILE;
+          END WHILE;
           END IF;
         END IF;
       END IF;
+
+        DELETE FROM tmp_aura_heal_sync;
+
+        INSERT INTO tmp_aura_heal_sync(spellid, heal_effect_index, sdall_desired, sdall_new)
+        SELECT hp.spellid,
+               hp.heal_effect_index,
+               s.desired_magnitude,
+               s.new_magnitude
+        FROM tmp_aura_updates s
+        JOIN tmp_aura_heal_pairs hp
+          ON hp.spellid = s.spellid
+         AND hp.sd_effect_index = s.effect_index
+        WHERE s.aura_code = 'SDALL';
+
+        UPDATE tmp_aura_updates h
+        JOIN tmp_aura_heal_sync sync
+          ON sync.spellid = h.spellid
+         AND sync.heal_effect_index = h.effect_index
+        SET h.desired_magnitude = sync.sdall_desired,
+            h.new_magnitude = sync.sdall_desired
+        WHERE h.aura_code = 'HEAL';
 
       SET @pending_aura_rows := (SELECT COUNT(*) FROM tmp_aura_updates);
 
@@ -1274,6 +1361,26 @@ proc: BEGIN
 
         SET @pending_aura_rows := @pending_aura_rows - 1;
       END WHILE;
+
+        DELETE FROM tmp_aura_heal_sync;
+
+        INSERT INTO tmp_aura_heal_sync(spellid, heal_effect_index, sdall_desired, sdall_new)
+        SELECT hp.spellid,
+               hp.heal_effect_index,
+               s.desired_magnitude,
+               s.new_magnitude
+        FROM tmp_aura_updates s
+        JOIN tmp_aura_heal_pairs hp
+          ON hp.spellid = s.spellid
+         AND hp.sd_effect_index = s.effect_index
+        WHERE s.aura_code = 'SDALL';
+
+        UPDATE tmp_aura_updates h
+        JOIN tmp_aura_heal_sync sync
+          ON sync.spellid = h.spellid
+         AND sync.heal_effect_index = h.effect_index
+        SET h.new_magnitude = sync.sdall_new
+        WHERE h.aura_code = 'HEAL';
 
       SELECT
         IFNULL(SUM(final_ap), 0.0),
@@ -1403,15 +1510,22 @@ proc: BEGIN
     END IF;
 
     SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus;
+    SET @S_final_trade := 0.0;
+    IF @trade_aura_code = 'SDALL' THEN
+      SET @S_final_trade := POW(GREATEST(0, @aur_new_sd_all * @W_SD_ALL), 1.5);
+    ELSEIF @trade_aura_code = 'HEAL' THEN
+      SET @S_final_trade := POW(GREATEST(0, @aur_new_heal * @W_HEAL), 1.5);
+    END IF;
+    SET @S_final_adjustable := GREATEST(0.0, @S_final_shared - @S_final_trade);
 
     SET @ratio_adjust := 1.0;
     SET @scale_adjust := 1.0;
 
-    IF @S_final_shared = 0 THEN
+    IF @S_final_adjustable = 0 THEN
       LEAVE final_scale_loop;
     END IF;
 
-    SET @ratio_adjust := GREATEST(0.0, @S_target_shared_effective / @S_final_shared);
+    SET @ratio_adjust := GREATEST(0.0, @S_target_shared_nontrade / @S_final_adjustable);
 
     SET @scale_adjust := CASE
       WHEN @ratio_adjust = 0 THEN 0
@@ -1434,7 +1548,7 @@ proc: BEGIN
           'base_scale',
           @shared_scale,
           CONCAT('ratio=', @ratio_shared, ',iterations=', @scale_iteration,
-                 ',target_S_effective=', @S_target_shared_effective,
+                 ',target_S_effective=', @S_target_shared_nontrade,
                  ',target_S_raw=', @S_target_shared,
                  ',post_loop_S=', @S_after_shared));
 
@@ -1444,8 +1558,8 @@ proc: BEGIN
           'final_scale',
           @final_scale,
           CONCAT('iterations=', @scale_iteration_final, ',ratio_adjust=', @ratio_adjust,
-                 ',final_S=', @S_final_shared,
-                 ',target_S_effective=', @S_target_shared_effective,
+                 ',final_S=', @S_final_adjustable,
+                 ',target_S_effective=', @S_target_shared_nontrade,
                  ',target_S_raw=', @S_target_shared));
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
@@ -1494,10 +1608,11 @@ proc: BEGIN
             'base_scale',
             @aura_scale,
             CONCAT('plan_S=', @S_final_a,
-                   ',target_shared_effective=', @S_target_shared_effective,
+                   ',target_shared_effective=', @S_target_shared_nontrade,
                    ',target_shared_raw=', @S_target_shared));
 
     DROP TEMPORARY TABLE IF EXISTS tmp_aura_used;
+    DROP TEMPORARY TABLE IF EXISTS tmp_aura_heal_sync;
     DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_candidates;
   END IF;
 
@@ -1825,7 +1940,9 @@ proc: BEGIN
         END IF;
     END IF;
 
-    CALL helper.sp_EstimateItemLevels();
+    IF IFNULL(@ilvl_defer_estimate, 0) = 0 THEN
+      CALL helper.sp_EstimateItemLevels();
+    END IF;
   END IF;
 
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_library;
