@@ -777,10 +777,11 @@ proc: BEGIN
           CONCAT('primaries=', @S_cur_p, ',auras=', @S_cur_a, ',resists=', @S_cur_res, ',other=', @S_other));
   SET @S_target_shared_raw := @S_tgt - @S_other;
   SET @S_target_shared := GREATEST(0.0, @S_target_shared_raw);
-  /* weapon DPS trades live inside S_other, so subtract the delta that was already consumed
-     when the weapon scaler adjusted caster DPS; this keeps the shared stats from shrinking
-     a second time after the DPS loss has been accounted for */
-  SET @S_target_shared_effective := GREATEST(0.0, @S_target_shared_raw - @trade_budget_delta);
+  /* weapon DPS trades consume S_other budget when they grow, but when a caster weapon
+     gives spell power back (target trade < current trade) the shared stats should still
+     shrink by the normal ilvl ratio. Only subtract positive deltas so we reserve space
+     when the spell power slice grows without inflating the shared target when it shrinks. */
+  SET @S_target_shared_effective := GREATEST(0.0, @S_target_shared_raw - GREATEST(0.0, @trade_budget_delta));
   IF @S_shared_cur > 0 THEN
     SET @ratio_shared := @S_target_shared_effective / @S_shared_cur;
   ELSE
