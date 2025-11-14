@@ -7,6 +7,7 @@ BEGIN
   DECLARE v_target  INT UNSIGNED;
   DECLARE v_apply   TINYINT(1);
   DECLARE done      INT DEFAULT 0;
+  DECLARE v_needs_estimate TINYINT(1) DEFAULT 0;
 
   /* cursor over a temp table we'll create before OPEN */
   DECLARE cur CURSOR FOR
@@ -88,20 +89,28 @@ BEGIN
     /* ===== 2) Run your greedy iLvl scaler (unchanged) ===== */
     CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(v_entry, v_target, v_apply, 1);
 
-    /* ===== 3) Refresh trueItemLevel estimates if applied ===== */
+    /* snapshot after (iLvl + DPS) */
     IF v_apply = 1 THEN
-      CALL helper.sp_EstimateItemLevels();
+      SET @after := v_target;
+    ELSE
+      SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED)
+        INTO @after
+      FROM lplusworld.item_template it
+      WHERE it.entry=v_entry;
     END IF;
 
-    /* snapshot after (iLvl + DPS) */
-    SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED),
+    SELECT
            (
              (COALESCE(it.dmg_min1,0)+COALESCE(it.dmg_max1,0))/2.0 +
              (COALESCE(it.dmg_min2,0)+COALESCE(it.dmg_max2,0))/2.0
            ) / NULLIF(it.delay/1000.0,0)
-      INTO @after, @dps_after
+      INTO @dps_after
     FROM lplusworld.item_template it
     WHERE it.entry=v_entry;
+
+    IF v_apply = 1 THEN
+      SET v_needs_estimate := 1;
+    END IF;
 
     /* finish queue row (keep done, but add note if DPS failed) */
     UPDATE helper.tune_queue
@@ -130,6 +139,11 @@ BEGIN
             ));
   END LOOP;
   CLOSE cur;
+
+  /* run the estimator once at the end if anything actually changed */
+  IF v_needs_estimate = 1 THEN
+    CALL helper.sp_EstimateItemLevels();
+  END IF;
 
   /* summary */
   SELECT status, COUNT(*) AS cnt
