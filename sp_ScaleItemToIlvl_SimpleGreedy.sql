@@ -5,7 +5,8 @@ CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_ScaleItemToIlvl_SimpleGreedy`(
   IN p_entry INT UNSIGNED,
   IN p_target_ilvl INT UNSIGNED,
   IN p_apply TINYINT(1),        -- 0=dry run, 1=apply changes
-  IN p_scale_auras TINYINT(1)   -- 0=skip aura scaling, nonzero=scale auras
+  IN p_scale_auras TINYINT(1),  -- 0=skip aura scaling, nonzero=scale auras
+  IN p_keep_bonus_armor TINYINT(1) -- nonzero keeps bonus armor fixed
 )
 proc: BEGIN
   /* slotmods / curves */
@@ -75,6 +76,7 @@ proc: BEGIN
   SET @ATTR_PASSIVE := 0x00000040;
 
   SET @scale_auras := CASE WHEN IFNULL(p_scale_auras, 1) <> 0 THEN 1 ELSE 0 END;
+  SET @keep_bonus_armor := CASE WHEN IFNULL(p_keep_bonus_armor, 0) <> 0 THEN 1 ELSE 0 END;
 
   /* basics (pull once so the weapon-trade fallback has everything it needs) */
   SELECT class, subclass, Quality, InventoryType,
@@ -256,6 +258,8 @@ proc: BEGIN
   SET @bonus_armor := IFNULL(@bonus_armor, 0.0);
   SET @S_cur_bonus := POW(GREATEST(0, @bonus_armor * @W_BONUSARMOR), 1.5);
   SET @bonus_armor_new := @bonus_armor;
+  SET @S_cur_bonus_adjustable := CASE WHEN @keep_bonus_armor = 1 THEN 0.0 ELSE @S_cur_bonus END;
+  SET @S_cur_bonus_locked := CASE WHEN @keep_bonus_armor = 1 THEN @S_cur_bonus ELSE 0.0 END;
 
   /* ===== Current aura budget ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_spells;
@@ -820,8 +824,8 @@ proc: BEGIN
     ) ENGINE=Memory;
   END IF;
 
-  SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res - @S_cur_bonus;
-  SET @S_shared_cur := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus;
+  SET @S_other := @S_cur - @S_cur_p - @S_cur_a - @S_cur_res - @S_cur_bonus + @S_cur_bonus_locked;
+  SET @S_shared_cur := @S_cur_p + @S_cur_a + @S_cur_res + @S_cur_bonus_adjustable;
   SET @S_shared_cur_trade := LEAST(GREATEST(0.0, @trade_budget_current), @S_shared_cur);
   SET @S_shared_cur_nontrade := GREATEST(0.0, @S_shared_cur - @S_shared_cur_trade);
 
@@ -865,6 +869,7 @@ proc: BEGIN
   SET @S_final_a := @S_cur_a;
   SET @S_final_p := @S_cur_p;
   SET @S_final_bonus := @S_cur_bonus;
+  SET @S_final_bonus_adjustable := CASE WHEN @keep_bonus_armor = 1 THEN 0.0 ELSE @S_cur_bonus END;
   SET @S_after_shared := @S_shared_cur_nontrade;
   SET @scale_adjust := 1.0;
   SET @ratio_adjust := 1.0;
@@ -897,8 +902,15 @@ proc: BEGIN
       SET @S_final_res := 0.0;
     END IF;
 
-    SET @bonus_armor_new := ROUND(GREATEST(0, @bonus_armor * @shared_scale));
-    SET @S_final_bonus := POW(GREATEST(0, @bonus_armor_new * @W_BONUSARMOR), 1.5);
+    IF @keep_bonus_armor = 1 THEN
+      SET @bonus_armor_new := @bonus_armor;
+      SET @S_final_bonus := @S_cur_bonus;
+      SET @S_final_bonus_adjustable := 0.0;
+    ELSE
+      SET @bonus_armor_new := ROUND(GREATEST(0, @bonus_armor * @shared_scale));
+      SET @S_final_bonus := POW(GREATEST(0, @bonus_armor_new * @W_BONUSARMOR), 1.5);
+      SET @S_final_bonus_adjustable := @S_final_bonus;
+    END IF;
 
     IF @scale_auras = 1 THEN
       DELETE FROM tmp_aura_updates;
@@ -1095,7 +1107,7 @@ proc: BEGIN
     FROM tmp_pnew;
 
     SET @S_after_shared := GREATEST(0.0,
-                                    @S_final_res + @S_final_a + @S_final_p + @S_final_bonus
+                                    @S_final_res + @S_final_a + @S_final_p + @S_final_bonus_adjustable
                                     - @S_target_shared_trade);
 
     IF @S_after_shared = 0 THEN
@@ -1143,8 +1155,15 @@ proc: BEGIN
         + POW(GREATEST(0, @res_shadow_new * @W_RESIST), 1.5)
         + POW(GREATEST(0, @res_arcane_new * @W_RESIST), 1.5);
 
-    SET @bonus_armor_new := ROUND(GREATEST(0, @bonus_armor * @final_scale));
-    SET @S_final_bonus := POW(GREATEST(0, @bonus_armor_new * @W_BONUSARMOR), 1.5);
+    IF @keep_bonus_armor = 1 THEN
+      SET @bonus_armor_new := @bonus_armor;
+      SET @S_final_bonus := @S_cur_bonus;
+      SET @S_final_bonus_adjustable := 0.0;
+    ELSE
+      SET @bonus_armor_new := ROUND(GREATEST(0, @bonus_armor * @final_scale));
+      SET @S_final_bonus := POW(GREATEST(0, @bonus_armor_new * @W_BONUSARMOR), 1.5);
+      SET @S_final_bonus_adjustable := @S_final_bonus;
+    END IF;
 
     DROP TEMPORARY TABLE IF EXISTS tmp_pnew;
     CREATE TEMPORARY TABLE tmp_pnew(stat TINYINT PRIMARY KEY, newv INT) ENGINE=Memory;
@@ -1509,7 +1528,7 @@ proc: BEGIN
       SET @aur_new_dodge := 0.0;
     END IF;
 
-    SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus;
+    SET @S_final_shared := @S_final_res + @S_final_a + @S_final_p + @S_final_bonus_adjustable;
     SET @S_final_trade := 0.0;
     IF @trade_aura_code = 'SDALL' THEN
       SET @S_final_trade := POW(GREATEST(0, @aur_new_sd_all * @W_SD_ALL), 1.5);

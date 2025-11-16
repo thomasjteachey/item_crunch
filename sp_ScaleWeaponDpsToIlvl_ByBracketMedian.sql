@@ -191,7 +191,7 @@ main: BEGIN
 
   /* optional cascade so the greedy scaler immediately rebalances stats/auras */
   IF @scale_item = 1 THEN
-    CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(p_entry, @tgt_ilvl, p_apply, 1);
+    CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(p_entry, @tgt_ilvl, p_apply, 1, 0);
   END IF;
 
   /* -------- 8) Result preview -------- */

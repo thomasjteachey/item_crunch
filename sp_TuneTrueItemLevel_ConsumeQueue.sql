@@ -1,5 +1,6 @@
 CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_TuneTrueItemLevel_ConsumeQueue`(
-  IN p_limit INT UNSIGNED   -- 0/NULL = all queued rows
+  IN p_limit INT UNSIGNED,  -- 0/NULL = all queued rows
+  IN p_keep_bonus_armor TINYINT(1)
 )
 BEGIN
   /* ===== DECLARES (must be first) ===== */
@@ -96,7 +97,7 @@ BEGIN
     END IF;
 
     /* ===== 2) Run your greedy iLvl scaler (unchanged) ===== */
-    CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(v_entry, v_target, v_apply, 1);
+    CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(v_entry, v_target, v_apply, 1, p_keep_bonus_armor);
 
     /* snapshot after (iLvl + DPS) */
     IF v_apply = 1 THEN
