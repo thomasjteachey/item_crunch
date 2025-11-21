@@ -106,7 +106,7 @@ BEGIN
   INSERT INTO helper.ilvl_unknown_aura_budget(entry, spellid, assumed_ilvl_share)
   SELECT unk.entry, unk.spellid,
          CASE WHEN cnt.cnt > 0
-              THEN GREATEST(it.ItemLevel - IFNULL(it.trueItemLevel, it.ItemLevel), 0) / cnt.cnt
+              THEN GREATEST(CAST(it.ItemLevel AS SIGNED) - CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED), 0) / cnt.cnt
               ELSE 0 END AS assumed_ilvl_share
   FROM tmp_equip_spells_unknown unk
   JOIN tmp_unknown_counts cnt ON cnt.entry = unk.entry
