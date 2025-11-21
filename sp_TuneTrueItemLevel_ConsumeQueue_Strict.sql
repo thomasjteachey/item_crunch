@@ -1,0 +1,184 @@
+CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_TuneTrueItemLevel_ConsumeQueue_Strict`(
+  IN p_limit INT UNSIGNED,  -- 0/NULL = all queued rows
+  IN p_keep_bonus_armor TINYINT(1)
+)
+BEGIN
+  /* ===== DECLARES (must be first) ===== */
+  DECLARE v_entry   INT UNSIGNED;
+  DECLARE v_target  INT UNSIGNED;
+  DECLARE v_apply   TINYINT(1);
+  DECLARE done      INT DEFAULT 0;
+  DECLARE v_needs_estimate TINYINT(1) DEFAULT 0;
+  DECLARE v_prev_defer_estimate TINYINT(1);
+
+  /* cursor over a temp table we'll create before OPEN */
+  DECLARE cur CURSOR FOR
+    SELECT entry, target_ilvl, apply_change
+    FROM tmp_work
+    ORDER BY entry;
+
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    SET @ilvl_defer_estimate := v_prev_defer_estimate;
+    RESIGNAL;
+  END;
+
+  SET v_prev_defer_estimate := @ilvl_defer_estimate;
+  SET @ilvl_defer_estimate := 1;
+
+  /* ===== minimal log table (ok after DECLAREs) ===== */
+  CREATE TABLE IF NOT EXISTS helper.tune_ilvl_log (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    entry INT UNSIGNED NOT NULL,
+    action ENUM('RUN','ERROR') NOT NULL,
+    ilvl_before INT NULL,
+    ilvl_after  INT NULL,
+    target_ilvl INT NULL,
+    note VARCHAR(255) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB;
+
+  /* snapshot worklist to avoid racing live queue */
+  DROP TEMPORARY TABLE IF EXISTS tmp_work;
+  CREATE TEMPORARY TABLE tmp_work(
+    entry INT UNSIGNED PRIMARY KEY,
+    target_ilvl INT UNSIGNED NOT NULL,
+    apply_change TINYINT(1) NOT NULL
+  ) ENGINE=Memory;
+
+  IF p_limit IS NULL OR p_limit = 0 THEN
+    INSERT INTO tmp_work(entry,target_ilvl,apply_change)
+    SELECT entry, target_ilvl, apply_change
+    FROM helper.tune_queue
+    WHERE status='queued';
+  ELSE
+    INSERT INTO tmp_work(entry,target_ilvl,apply_change)
+    SELECT entry, target_ilvl, apply_change
+    FROM helper.tune_queue
+    WHERE status='queued'
+    ORDER BY entry
+    LIMIT p_limit;
+  END IF;
+
+  /* ===== iterate ===== */
+  OPEN cur;
+  readloop: LOOP
+    FETCH cur INTO v_entry, v_target, v_apply;
+    IF done = 1 THEN LEAVE readloop; END IF;
+
+    /* mark processing */
+    UPDATE helper.tune_queue
+      SET status='processing', note=NULL
+    WHERE entry=v_entry AND status='queued';
+
+    /* snapshot before (iLvl, class/subclass/delay, DPS) */
+    SELECT it.class, it.subclass, it.delay,
+           CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED) AS ilvl_before,
+           (
+             (COALESCE(it.dmg_min1,0)+COALESCE(it.dmg_max1,0))/2.0 +
+             (COALESCE(it.dmg_min2,0)+COALESCE(it.dmg_max2,0))/2.0
+           ) / NULLIF(it.delay/1000.0,0) AS dps_before
+      INTO @class, @subclass, @delay, @before, @dps_before
+    FROM lplusworld.item_template it
+    WHERE it.entry=v_entry;
+
+    SET @is_weapon := IF(@class=2 AND IFNULL(@delay,0)>0, 1, 0);
+    SET @dps_fail  := 0;
+
+    /* ===== 1) If weapon, scale WEAPON DPS to target iLvl first ===== */
+    IF @is_weapon = 1 THEN
+      BEGIN
+        DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET @dps_fail := 1;
+        CALL helper.sp_ScaleWeaponDpsToIlvl_ByBracketMedian(v_entry, v_target, v_apply, 0);
+      END;
+    END IF;
+
+    /* ===== 2) Run the greedy scaler (auras stay in play) ===== */
+    CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(v_entry, v_target, v_apply, 1, p_keep_bonus_armor);
+
+    /* snapshot after first pass */
+    IF v_apply = 1 THEN
+      SET @after := v_target;
+    ELSE
+      SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED)
+        INTO @after
+      FROM lplusworld.item_template it
+      WHERE it.entry=v_entry;
+    END IF;
+
+    SELECT
+           (
+             (COALESCE(it.dmg_min1,0)+COALESCE(it.dmg_max1,0))/2.0 +
+             (COALESCE(it.dmg_min2,0)+COALESCE(it.dmg_max2,0))/2.0
+           ) / NULLIF(it.delay/1000.0,0)
+      INTO @dps_after
+    FROM lplusworld.item_template it
+    WHERE it.entry=v_entry;
+
+    IF v_apply = 1 THEN
+      SET v_needs_estimate := 1;
+    END IF;
+
+    /* ===== Strict estimation & correction ===== */
+    CALL helper.sp_EstimateItemLevels_StrictAuras();
+    SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED) INTO @after
+    FROM lplusworld.item_template it
+    WHERE it.entry = v_entry;
+
+    /* nudge once more if we still miss by more than 1 ilvl */
+    SET @delta := @after - v_target;
+    IF v_apply = 1 AND ABS(@delta) > 1 THEN
+      SET @nudge_target := v_target - SIGN(@delta);
+      CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(v_entry, @nudge_target, v_apply, 1, p_keep_bonus_armor);
+      CALL helper.sp_EstimateItemLevels_StrictAuras();
+      SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED) INTO @after
+      FROM lplusworld.item_template it
+      WHERE it.entry = v_entry;
+    END IF;
+
+    /* finish queue row (keep done, but add note if DPS failed) */
+    UPDATE helper.tune_queue
+       SET status='done',
+           note = CONCAT(
+                   'apply=', v_apply,
+                   IF(@is_weapon=1,
+                      CONCAT(', dps ', ROUND(@dps_before,2), '→', ROUND(@dps_after,2),
+                             IF(@dps_fail=1,' (DPS scale FAIL)','')
+                      ),
+                      ''
+                   ),
+                   ', est=', @after,
+                   ', target=', v_target
+                 )
+     WHERE entry=v_entry;
+
+    INSERT INTO helper.tune_ilvl_log(entry,action,ilvl_before,ilvl_after,target_ilvl,note)
+    VALUES (v_entry,'RUN',@before,@after,v_target,
+            CONCAT(
+               'apply=',v_apply,
+               IF(@is_weapon=1,
+                  CONCAT(', dps ', ROUND(@dps_before,2), '→', ROUND(@dps_after,2),
+                         IF(@dps_fail=1,' (DPS scale FAIL)','')
+                  ),
+                  ''
+               ),
+               ', est=', @after,
+               ', target=', v_target
+            ));
+  END LOOP;
+  CLOSE cur;
+
+  /* run the estimator once at the end if anything actually changed */
+  IF v_needs_estimate = 1 THEN
+    CALL helper.sp_EstimateItemLevels_StrictAuras();
+  END IF;
+
+  SET @ilvl_defer_estimate := v_prev_defer_estimate;
+
+  /* summary */
+  SELECT status, COUNT(*) AS cnt
+  FROM helper.tune_queue
+  WHERE status IN ('queued','processing','done','error')
+  GROUP BY status;
+END
