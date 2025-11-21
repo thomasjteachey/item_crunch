@@ -29,7 +29,7 @@ proc: BEGIN
     FROM lplusworld.item_template it
     WHERE it.entry = p_entry;
 
-    SET @delta := v_after - p_target_ilvl;
+      SET @delta := CAST(v_after AS SIGNED) - CAST(p_target_ilvl AS SIGNED);
     IF ABS(@delta) > 1 THEN
       SET @nudge_target := p_target_ilvl - SIGN(@delta);
       CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(p_entry, @nudge_target, p_apply, p_scale_auras, p_keep_bonus_armor);
