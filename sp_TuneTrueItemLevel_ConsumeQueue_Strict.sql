@@ -94,18 +94,18 @@ BEGIN
       END;
     END IF;
 
-    /* ===== 2) Run the greedy scaler (auras stay in play) ===== */
-    CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(v_entry, v_target, v_apply, 1, p_keep_bonus_armor);
+    /* ===== 2) Run the strict scaler (enforces unknown aura budgets and nudge) ===== */
+    CALL helper.sp_ScaleItemToIlvl_StrictAuras(v_entry, v_target, v_apply, 1, p_keep_bonus_armor);
 
-    /* snapshot after first pass */
+    /* snapshot after strict scaling */
     IF v_apply = 1 THEN
-      SET @after := v_target;
-    ELSE
-      SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED)
-        INTO @after
-      FROM lplusworld.item_template it
-      WHERE it.entry=v_entry;
+      SET v_needs_estimate := 1;
     END IF;
+
+    SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED)
+      INTO @after
+    FROM lplusworld.item_template it
+    WHERE it.entry=v_entry;
 
     SELECT
            (
@@ -115,27 +115,6 @@ BEGIN
       INTO @dps_after
     FROM lplusworld.item_template it
     WHERE it.entry=v_entry;
-
-    IF v_apply = 1 THEN
-      SET v_needs_estimate := 1;
-    END IF;
-
-    /* ===== Strict estimation & correction ===== */
-    CALL helper.sp_EstimateItemLevels_StrictAuras();
-    SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED) INTO @after
-    FROM lplusworld.item_template it
-    WHERE it.entry = v_entry;
-
-    /* nudge once more if we still miss by more than 1 ilvl */
-    SET @delta := @after - v_target;
-    IF v_apply = 1 AND ABS(@delta) > 1 THEN
-      SET @nudge_target := v_target - SIGN(@delta);
-      CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(v_entry, @nudge_target, v_apply, 1, p_keep_bonus_armor);
-      CALL helper.sp_EstimateItemLevels_StrictAuras();
-      SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED) INTO @after
-      FROM lplusworld.item_template it
-      WHERE it.entry = v_entry;
-    END IF;
 
     /* finish queue row (keep done, but add note if DPS failed) */
     UPDATE helper.tune_queue
