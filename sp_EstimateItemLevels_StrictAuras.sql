@@ -91,6 +91,17 @@ BEGIN
   WHERE (entry, spellid) IN (SELECT entry, spellid FROM tmp_equip_spells_known);
 
   /* record the implied budget per unknown aura so scaling can leave them alone */
+  DROP TEMPORARY TABLE IF EXISTS tmp_unknown_counts;
+  CREATE TEMPORARY TABLE tmp_unknown_counts(
+    entry INT UNSIGNED PRIMARY KEY,
+    cnt INT UNSIGNED NOT NULL
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_unknown_counts(entry, cnt)
+  SELECT entry, COUNT(*) AS cnt
+  FROM tmp_equip_spells_unknown
+  GROUP BY entry;
+
   DELETE FROM helper.ilvl_unknown_aura_budget;
   INSERT INTO helper.ilvl_unknown_aura_budget(entry, spellid, assumed_ilvl_share)
   SELECT unk.entry, unk.spellid,
@@ -98,20 +109,12 @@ BEGIN
               THEN GREATEST(it.ItemLevel - IFNULL(it.trueItemLevel, it.ItemLevel), 0) / cnt.cnt
               ELSE 0 END AS assumed_ilvl_share
   FROM tmp_equip_spells_unknown unk
-  JOIN (
-         SELECT entry, COUNT(*) AS cnt
-         FROM tmp_equip_spells_unknown
-         GROUP BY entry
-       ) cnt ON cnt.entry = unk.entry
+  JOIN tmp_unknown_counts cnt ON cnt.entry = unk.entry
   JOIN lplusworld.item_template it ON it.entry = unk.entry;
 
   /* for items with unknown auras, pin true ilvl to Blizzard's advertised value */
   UPDATE lplusworld.item_template t
-  JOIN (
-         SELECT entry, COUNT(*) AS cnt
-         FROM tmp_equip_spells_unknown
-         GROUP BY entry
-       ) unk ON unk.entry = t.entry
+  JOIN tmp_unknown_counts unk ON unk.entry = t.entry
   SET t.trueItemLevel = t.ItemLevel;
 
   /* caster weapons: advertise the caster-friendly ilvl instead of letting the old estimator overshoot */
@@ -121,6 +124,7 @@ BEGIN
     AND IFNULL(t.caster,0) = 1
     AND IFNULL(t.delay,0) > 0;
 
+  DROP TEMPORARY TABLE IF EXISTS tmp_unknown_counts;
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells_unknown;
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells_known;
 END
