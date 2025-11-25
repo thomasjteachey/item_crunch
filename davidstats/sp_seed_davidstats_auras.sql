@@ -37,25 +37,25 @@ begin
   ) ENGINE=Memory;
 
   INSERT INTO tmp_davidstats_required(stat, magnitude, aura_id, effect_index, aura_desc)
-  SELECT r.stat,
-         r.magnitude_percent AS magnitude,
-         CASE
-           WHEN r.stat = 'hit_pct' THEN @AURA_HIT
-           WHEN r.stat = 'spell_hit_pct' THEN @AURA_SPHIT
-           WHEN r.stat = 'crit_pct' THEN @AURA_CRIT_GENERIC
-           WHEN r.stat = 'spell_crit_pct' THEN @AURA_SPCRIT1
-           WHEN r.stat = 'dodge_pct' THEN @AURA_DODGE
-           WHEN r.stat IN ('block_chance_pct','block_pct') THEN @AURA_BLOCK
-           ELSE NULL
-         END AS aura_id,
-         1 AS effect_index,
-         CASE
-           WHEN r.stat = 'hit_pct' THEN @DESC_HIT
-           WHEN r.stat = 'spell_hit_pct' THEN @DESC_SPHIT
-           WHEN r.stat = 'crit_pct' THEN @DESC_CRIT
-           WHEN r.stat = 'spell_crit_pct' THEN @DESC_SPCRIT
-           ELSE NULL
-         END AS aura_desc
+  SELECT DISTINCT r.stat,
+                  r.magnitude_percent AS magnitude,
+                  CASE
+                    WHEN r.stat = 'hit_pct' THEN @AURA_HIT
+                    WHEN r.stat = 'spell_hit_pct' THEN @AURA_SPHIT
+                    WHEN r.stat = 'crit_pct' THEN @AURA_CRIT_GENERIC
+                    WHEN r.stat = 'spell_crit_pct' THEN @AURA_SPCRIT1
+                    WHEN r.stat = 'dodge_pct' THEN @AURA_DODGE
+                    WHEN r.stat IN ('block_chance_pct','block_pct') THEN @AURA_BLOCK
+                    ELSE NULL
+                  END AS aura_id,
+                  1 AS effect_index,
+                  CASE
+                    WHEN r.stat = 'hit_pct' THEN @DESC_HIT
+                    WHEN r.stat = 'spell_hit_pct' THEN @DESC_SPHIT
+                    WHEN r.stat = 'crit_pct' THEN @DESC_CRIT
+                    WHEN r.stat = 'spell_crit_pct' THEN @DESC_SPCRIT
+                    ELSE NULL
+                  END AS aura_desc
   FROM helper.davidstats_required_auras r
   WHERE r.stat IN ('hit_pct','spell_hit_pct','crit_pct','spell_crit_pct','dodge_pct','block_pct','block_chance_pct');
 
