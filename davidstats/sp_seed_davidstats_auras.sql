@@ -70,7 +70,7 @@ begin
     SELECT 'defense', defense FROM helper.davidstats_items WHERE defense > 0
   ) aura
   GROUP BY stat, magnitude_percent
-  ON DUPLICATE KEY UPDATE magnitude = aura.magnitude_percent;
+  ON DUPLICATE KEY UPDATE magnitude = VALUES(magnitude);
 
   DROP TEMPORARY TABLE IF EXISTS tmp_davidstats_required;
   CREATE TEMPORARY TABLE tmp_davidstats_required(

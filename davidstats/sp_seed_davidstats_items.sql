@@ -270,7 +270,7 @@ BEGIN
     UNION ALL
     SELECT 'defense', defense FROM helper.davidstats_items WHERE defense > 0
   ) aura
-  ON DUPLICATE KEY UPDATE magnitude_percent = aura.magnitude_percent;
+  ON DUPLICATE KEY UPDATE magnitude_percent = VALUES(magnitude_percent);
 
   -- Ensure the aura spells exist (reuses exact matches or clones the closest)
   CALL helper.sp_seed_davidstats_auras();
