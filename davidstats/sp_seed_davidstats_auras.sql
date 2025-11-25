@@ -118,10 +118,13 @@ begin
                  CASE WHEN EffectAura_1 = v_aura_id THEN EffectBasePoints_1
                       WHEN EffectAura_2 = v_aura_id THEN EffectBasePoints_2
                       ELSE EffectBasePoints_3 END AS base_points,
-                 Description_Lang_enUS AS desc_en
+                 Description_Lang_enUS AS desc_en,
+                 CASE WHEN EffectAura_1 = v_aura_id THEN EffectAura_1
+                      WHEN EffectAura_2 = v_aura_id THEN EffectAura_2
+                      ELSE EffectAura_3 END AS matched_aura
           FROM dbc.spell_lplus
         ) s
-        WHERE s.eff_idx = v_effect_index
+        WHERE s.matched_aura = v_aura_id
           AND (s.base_points + 1) = v_magnitude
           AND (v_desc IS NULL OR s.desc_en = v_desc)
         ORDER BY s.ID
@@ -150,10 +153,13 @@ begin
                  CASE WHEN EffectAura_1 = v_aura_id THEN EffectBasePoints_1
                       WHEN EffectAura_2 = v_aura_id THEN EffectBasePoints_2
                       ELSE EffectBasePoints_3 END AS base_points,
-                 Description_Lang_enUS AS desc_en
+                 Description_Lang_enUS AS desc_en,
+                 CASE WHEN EffectAura_1 = v_aura_id THEN EffectAura_1
+                      WHEN EffectAura_2 = v_aura_id THEN EffectAura_2
+                      ELSE EffectAura_3 END AS matched_aura
           FROM dbc.spell_lplus
         ) s
-        WHERE s.eff_idx = v_effect_index
+        WHERE s.matched_aura = v_aura_id
           AND (v_desc IS NULL OR s.desc_en = v_desc)
         ORDER BY delta, candidate_id
         LIMIT 1
