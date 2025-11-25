@@ -349,23 +349,28 @@ BEGIN
   -- Stamp the chosen aura spells into the staged items
   UPDATE helper.davidstats_items i
   JOIN tmp_slot_assign a ON i.entry = a.entry AND a.slot = 1
-  SET i.spellid_1 = a.spellid;
+  SET i.spellid_1 = a.spellid,
+      i.spelltrigger_1 = 1;
 
   UPDATE helper.davidstats_items i
   JOIN tmp_slot_assign a ON i.entry = a.entry AND a.slot = 2
-  SET i.spellid_2 = a.spellid;
+  SET i.spellid_2 = a.spellid,
+      i.spelltrigger_2 = 1;
 
   UPDATE helper.davidstats_items i
   JOIN tmp_slot_assign a ON i.entry = a.entry AND a.slot = 3
-  SET i.spellid_3 = a.spellid;
+  SET i.spellid_3 = a.spellid,
+      i.spelltrigger_3 = 1;
 
   UPDATE helper.davidstats_items i
   JOIN tmp_slot_assign a ON i.entry = a.entry AND a.slot = 4
-  SET i.spellid_4 = a.spellid;
+  SET i.spellid_4 = a.spellid,
+      i.spelltrigger_4 = 1;
 
   UPDATE helper.davidstats_items i
   JOIN tmp_slot_assign a ON i.entry = a.entry AND a.slot = 5
-  SET i.spellid_5 = a.spellid;
+  SET i.spellid_5 = a.spellid,
+      i.spelltrigger_5 = 1;
 
   -- Move the staged rows into the live item_template, ignoring the staging-only aura columns
   REPLACE INTO lplusworld.item_template (
