@@ -7,21 +7,22 @@ select item from lplusworld.npc_vendor where entry in (110220, 110221)
 
 insert into lplusworld.item_template
 select * from legionnaireworld.item_template
-where entry in 
+where entry in
 (
 select item from lplusworld.npc_vendor where entry in (110220, 110221)
 );
 
 delete from helper.tune_queue;
 
-INSERT IGNORE INTO helper.tune_queue (entry, target_ilvl, mode)
+INSERT IGNORE INTO helper.tune_queue (entry, target_ilvl, mode, apply_change)
 SELECT DISTINCT it.entry,
        CASE
          WHEN REPLACE(it.name,'’','''') LIKE 'High Warlord''s%'
            OR REPLACE(it.name,'’','''') LIKE 'Grand Marshal''s%' THEN 75
          ELSE 73
        END AS target_ilvl,
-       'crunch'
+       'crunch',
+       1
 FROM lplusworld.npc_vendor v
 JOIN lplusworld.item_template it ON it.entry = v.item
 WHERE v.entry in (110220, 110221);
