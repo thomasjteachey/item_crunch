@@ -307,11 +307,18 @@ BEGIN
   JOIN helper.davidstats_seeded_auras a
     ON a.stat = i.stat AND a.magnitude = i.magnitude_percent;
 
+  -- Remove duplicate spell IDs per item so each spell is stamped at most once
+  DROP TEMPORARY TABLE IF EXISTS tmp_unique_item_auras;
+  CREATE TEMPORARY TABLE tmp_unique_item_auras AS
+  SELECT entry, spellid, MIN(ordinal) AS ordinal, MIN(stat) AS stat
+  FROM tmp_item_auras
+  GROUP BY entry, spellid;
+
   -- Rank aura requests per item
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_rn;
   CREATE TEMPORARY TABLE tmp_aura_rn AS
   SELECT entry, spellid, ROW_NUMBER() OVER (PARTITION BY entry ORDER BY ordinal, stat) AS rn
-  FROM tmp_item_auras;
+  FROM tmp_unique_item_auras;
 
   -- Identify open spell slots (zeroed) on each staged item and rank them
   DROP TEMPORARY TABLE IF EXISTS tmp_free_slots;
