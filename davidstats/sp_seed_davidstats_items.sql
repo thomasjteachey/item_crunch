@@ -167,6 +167,75 @@ BEGIN
     COALESCE(spell_penetration, 0)
   FROM tmp_new_targets;
 
+  -- Map requested stat columns into stat_type#/stat_value# slots for the new targets
+  DROP TEMPORARY TABLE IF EXISTS tmp_new_stats;
+  CREATE TEMPORARY TABLE tmp_new_stats AS
+  SELECT entry,
+         ROW_NUMBER() OVER (PARTITION BY entry ORDER BY stat_order) AS rn,
+         stat_type,
+         stat_value
+  FROM (
+    SELECT entry, 1 AS stat_order, 7  AS stat_type, stamina             AS stat_value FROM tmp_new_targets WHERE COALESCE(stamina, 0) > 0
+    UNION ALL SELECT entry, 2, 3,  agility              FROM tmp_new_targets WHERE COALESCE(agility, 0) > 0
+    UNION ALL SELECT entry, 3, 4,  strength             FROM tmp_new_targets WHERE COALESCE(strength, 0) > 0
+    UNION ALL SELECT entry, 4, 5,  intellect            FROM tmp_new_targets WHERE COALESCE(intellect, 0) > 0
+    UNION ALL SELECT entry, 5, 6,  spirit               FROM tmp_new_targets WHERE COALESCE(spirit, 0) > 0
+    UNION ALL SELECT entry, 6, 38, attack_power         FROM tmp_new_targets WHERE COALESCE(attack_power, 0) > 0
+    UNION ALL SELECT entry, 7, 39, ranged_attack_power  FROM tmp_new_targets WHERE COALESCE(ranged_attack_power, 0) > 0
+    UNION ALL SELECT entry, 8, 45, spell_power          FROM tmp_new_targets WHERE COALESCE(spell_power, 0) > 0
+    UNION ALL SELECT entry, 9, 41, healing              FROM tmp_new_targets WHERE COALESCE(healing, 0) > 0
+    UNION ALL SELECT entry, 10,43, mp5                  FROM tmp_new_targets WHERE COALESCE(mp5, 0) > 0
+    UNION ALL SELECT entry, 11,12, defense              FROM tmp_new_targets WHERE COALESCE(defense, 0) > 0
+    UNION ALL SELECT entry, 12,49, block_value          FROM tmp_new_targets WHERE COALESCE(block_value, 0) > 0
+    UNION ALL SELECT entry, 13,42, spell_penetration    FROM tmp_new_targets WHERE COALESCE(spell_penetration, 0) > 0
+  ) s;
+
+  UPDATE helper.davidstats_items i
+  JOIN (SELECT entry, COUNT(*) AS cnt FROM tmp_new_stats GROUP BY entry) s
+    ON i.entry = s.entry
+   AND EXISTS (SELECT 1 FROM tmp_new_targets t WHERE t.entry = i.entry)
+  SET i.StatsCount = s.cnt;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 1
+  SET i.stat_type1 = s.stat_type, i.stat_value1 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 2
+  SET i.stat_type2 = s.stat_type, i.stat_value2 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 3
+  SET i.stat_type3 = s.stat_type, i.stat_value3 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 4
+  SET i.stat_type4 = s.stat_type, i.stat_value4 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 5
+  SET i.stat_type5 = s.stat_type, i.stat_value5 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 6
+  SET i.stat_type6 = s.stat_type, i.stat_value6 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 7
+  SET i.stat_type7 = s.stat_type, i.stat_value7 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 8
+  SET i.stat_type8 = s.stat_type, i.stat_value8 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 9
+  SET i.stat_type9 = s.stat_type, i.stat_value9 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 10
+  SET i.stat_type10 = s.stat_type, i.stat_value10 = s.stat_value;
+
   -- Capture any new aura magnitudes from the staging rows so they exist before we assign spells
   INSERT IGNORE INTO helper.davidstats_required_auras (stat, magnitude_percent)
   SELECT stat, magnitude_percent
