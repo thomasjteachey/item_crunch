@@ -175,20 +175,42 @@ BEGIN
          stat_type,
          stat_value
   FROM (
-    SELECT entry, 1 AS stat_order, 7  AS stat_type, stamina             AS stat_value FROM tmp_new_targets WHERE COALESCE(stamina, 0) > 0
-    UNION ALL SELECT entry, 2, 3,  agility              FROM tmp_new_targets WHERE COALESCE(agility, 0) > 0
-    UNION ALL SELECT entry, 3, 4,  strength             FROM tmp_new_targets WHERE COALESCE(strength, 0) > 0
-    UNION ALL SELECT entry, 4, 5,  intellect            FROM tmp_new_targets WHERE COALESCE(intellect, 0) > 0
-    UNION ALL SELECT entry, 5, 6,  spirit               FROM tmp_new_targets WHERE COALESCE(spirit, 0) > 0
-    UNION ALL SELECT entry, 6, 38, attack_power         FROM tmp_new_targets WHERE COALESCE(attack_power, 0) > 0
-    UNION ALL SELECT entry, 7, 39, ranged_attack_power  FROM tmp_new_targets WHERE COALESCE(ranged_attack_power, 0) > 0
-    UNION ALL SELECT entry, 8, 45, spell_power          FROM tmp_new_targets WHERE COALESCE(spell_power, 0) > 0
-    UNION ALL SELECT entry, 9, 41, healing              FROM tmp_new_targets WHERE COALESCE(healing, 0) > 0
-    UNION ALL SELECT entry, 10,43, mp5                  FROM tmp_new_targets WHERE COALESCE(mp5, 0) > 0
-    UNION ALL SELECT entry, 11,12, defense              FROM tmp_new_targets WHERE COALESCE(defense, 0) > 0
-    UNION ALL SELECT entry, 12,49, block_value          FROM tmp_new_targets WHERE COALESCE(block_value, 0) > 0
-    UNION ALL SELECT entry, 13,42, spell_penetration    FROM tmp_new_targets WHERE COALESCE(spell_penetration, 0) > 0
-  ) s;
+    SELECT t.entry,
+           m.stat_order,
+           m.stat_type,
+           CASE m.column_name
+             WHEN 'stamina'            THEN t.stamina
+             WHEN 'agility'            THEN t.agility
+             WHEN 'strength'           THEN t.strength
+             WHEN 'intellect'          THEN t.intellect
+             WHEN 'spirit'             THEN t.spirit
+             WHEN 'attack_power'       THEN t.attack_power
+             WHEN 'ranged_attack_power' THEN t.ranged_attack_power
+             WHEN 'spell_power'        THEN t.spell_power
+             WHEN 'healing'            THEN t.healing
+             WHEN 'mp5'                THEN t.mp5
+             WHEN 'defense'            THEN t.defense
+             WHEN 'block_value'        THEN t.block_value
+             WHEN 'spell_penetration'  THEN t.spell_penetration
+           END AS stat_value
+    FROM tmp_new_targets t
+    JOIN (
+      SELECT 1  AS stat_order, 7  AS stat_type, 'stamina'             AS column_name UNION ALL
+      SELECT 2  AS stat_order, 3  AS stat_type, 'agility'             AS column_name UNION ALL
+      SELECT 3  AS stat_order, 4  AS stat_type, 'strength'            AS column_name UNION ALL
+      SELECT 4  AS stat_order, 5  AS stat_type, 'intellect'           AS column_name UNION ALL
+      SELECT 5  AS stat_order, 6  AS stat_type, 'spirit'              AS column_name UNION ALL
+      SELECT 6  AS stat_order, 38 AS stat_type, 'attack_power'        AS column_name UNION ALL
+      SELECT 7  AS stat_order, 39 AS stat_type, 'ranged_attack_power' AS column_name UNION ALL
+      SELECT 8  AS stat_order, 45 AS stat_type, 'spell_power'         AS column_name UNION ALL
+      SELECT 9  AS stat_order, 41 AS stat_type, 'healing'             AS column_name UNION ALL
+      SELECT 10 AS stat_order, 43 AS stat_type, 'mp5'                 AS column_name UNION ALL
+      SELECT 11 AS stat_order, 12 AS stat_type, 'defense'             AS column_name UNION ALL
+      SELECT 12 AS stat_order, 49 AS stat_type, 'block_value'         AS column_name UNION ALL
+      SELECT 13 AS stat_order, 42 AS stat_type, 'spell_penetration'   AS column_name
+    ) m ON TRUE
+  ) s
+  WHERE COALESCE(stat_value, 0) > 0;
 
   UPDATE helper.davidstats_items i
   JOIN (SELECT entry, COUNT(*) AS cnt FROM tmp_new_stats GROUP BY entry) s
