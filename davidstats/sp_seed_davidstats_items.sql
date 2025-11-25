@@ -64,7 +64,7 @@ BEGIN
   -- Rank aura requests per item
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_rn;
   CREATE TEMPORARY TABLE tmp_aura_rn AS
-  SELECT entry, spell_id, ROW_NUMBER() OVER (PARTITION BY entry ORDER BY ordinal, stat) AS rn
+  SELECT entry, spellid, ROW_NUMBER() OVER (PARTITION BY entry ORDER BY ordinal, stat) AS rn
   FROM tmp_item_auras;
 
   -- Identify open spell slots (zeroed) on each staged item and rank them
