@@ -11,11 +11,174 @@ ALTER TABLE helper.davidstats_items
   ADD COLUMN crit_pct          TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER spell_hit_pct,
   ADD COLUMN spell_crit_pct    TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER crit_pct,
   ADD COLUMN dodge_pct         TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER spell_crit_pct,
-  ADD COLUMN block_chance_pct  TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER dodge_pct$$
+  ADD COLUMN block_chance_pct  TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER dodge_pct,
+  ADD COLUMN stamina           SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER block_chance_pct,
+  ADD COLUMN agility           SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER stamina,
+  ADD COLUMN strength          SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER agility,
+  ADD COLUMN intellect         SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER strength,
+  ADD COLUMN spirit            SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER intellect,
+  ADD COLUMN bonus_armor       SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER spirit,
+  ADD COLUMN attack_power      SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER bonus_armor,
+  ADD COLUMN ranged_attack_power SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER attack_power,
+  ADD COLUMN spell_power       SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER ranged_attack_power,
+  ADD COLUMN healing           SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER spell_power,
+  ADD COLUMN mp5               SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER healing,
+  ADD COLUMN defense           SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER mp5,
+  ADD COLUMN block_value       SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER defense,
+  ADD COLUMN block_pct         SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER block_value,
+  ADD COLUMN spell_penetration SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER block_pct,
+  ADD UNIQUE KEY uq_davidstats_identity (name)$$
+
+CREATE TABLE IF NOT EXISTS helper.davidstats_custom_set_targets (
+  class VARCHAR(64) NOT NULL,
+  archetype VARCHAR(64) NOT NULL,
+  slot VARCHAR(64) NOT NULL,
+  stamina SMALLINT UNSIGNED DEFAULT NULL,
+  agility SMALLINT UNSIGNED DEFAULT NULL,
+  strength SMALLINT UNSIGNED DEFAULT NULL,
+  intellect SMALLINT UNSIGNED DEFAULT NULL,
+  spirit SMALLINT UNSIGNED DEFAULT NULL,
+  bonus_armor SMALLINT UNSIGNED DEFAULT NULL,
+  attack_power SMALLINT UNSIGNED DEFAULT NULL,
+  ranged_attack_power SMALLINT UNSIGNED DEFAULT NULL,
+  spell_power SMALLINT UNSIGNED DEFAULT NULL,
+  healing SMALLINT UNSIGNED DEFAULT NULL,
+  mp5 SMALLINT UNSIGNED DEFAULT NULL,
+  defense SMALLINT UNSIGNED DEFAULT NULL,
+  block_value SMALLINT UNSIGNED DEFAULT NULL,
+  block_pct SMALLINT UNSIGNED DEFAULT NULL,
+  block_chance_pct SMALLINT UNSIGNED DEFAULT NULL,
+  hit_pct SMALLINT UNSIGNED DEFAULT NULL,
+  spell_hit_pct SMALLINT UNSIGNED DEFAULT NULL,
+  crit_pct SMALLINT UNSIGNED DEFAULT NULL,
+  spell_crit_pct SMALLINT UNSIGNED DEFAULT NULL,
+  dodge_pct SMALLINT UNSIGNED DEFAULT NULL,
+  spell_penetration SMALLINT UNSIGNED DEFAULT NULL
+)$$
 
 DROP PROCEDURE IF EXISTS helper.sp_seed_davidstats_items$$
 CREATE PROCEDURE helper.sp_seed_davidstats_items()
 BEGIN
+  -- Refresh the normalized targets snapshot from the CSV so new slots are staged automatically
+  TRUNCATE TABLE helper.davidstats_custom_set_targets;
+
+  LOAD DATA LOCAL INFILE 'davidstats/custom_set_targets.csv'
+    INTO TABLE helper.davidstats_custom_set_targets
+    FIELDS TERMINATED BY ',' ENCLOSED BY '"'
+    IGNORE 1 LINES
+    (class, archetype, slot, stamina, agility, strength, intellect, spirit, bonus_armor,
+     attack_power, ranged_attack_power, spell_power, healing, mp5, defense, block_value,
+     block_pct, block_chance_pct, hit_pct, spell_hit_pct, crit_pct, spell_crit_pct, dodge_pct,
+     spell_penetration);
+
+  -- Assign entry IDs for any slots that are missing from the staging table
+  DROP TEMPORARY TABLE IF EXISTS tmp_new_targets;
+  CREATE TEMPORARY TABLE tmp_new_targets AS
+  SELECT
+    COALESCE((SELECT MAX(entry) FROM helper.davidstats_items), 99999)
+      + ROW_NUMBER() OVER (ORDER BY t.class, t.archetype, t.slot) AS entry,
+    CONCAT(t.slot, ' - ', t.class, ' ', t.archetype) AS name,
+    CASE LOWER(t.slot)
+      WHEN 'helm' THEN 1
+      WHEN 'neck' THEN 2
+      WHEN 'shoulders' THEN 3
+      WHEN 'back' THEN 16
+      WHEN 'chest' THEN 5
+      WHEN 'waist' THEN 6
+      WHEN 'legs' THEN 7
+      WHEN 'feet' THEN 8
+      WHEN 'wrist' THEN 9
+      WHEN 'hands' THEN 10
+      WHEN 'ring 1' THEN 11
+      WHEN 'ring 2' THEN 11
+      ELSE 0
+    END AS inv_type,
+    t.*
+  FROM helper.davidstats_custom_set_targets t
+  WHERE NOT EXISTS (
+    SELECT 1 FROM helper.davidstats_items i
+    WHERE i.name = CONCAT(t.slot, ' - ', t.class, ' ', t.archetype)
+  );
+
+  INSERT IGNORE INTO helper.davidstats_items (
+    entry,
+    name,
+    AllowableClass,
+    AllowableRace,
+    InventoryType,
+    Quality,
+    Flags,
+    FlagsExtra,
+    BuyCount,
+    BuyPrice,
+    SellPrice,
+    ItemLevel,
+    RequiredLevel,
+    stackable,
+    StatsCount,
+    armor,
+    hit_pct,
+    spell_hit_pct,
+    crit_pct,
+    spell_crit_pct,
+    dodge_pct,
+    block_chance_pct,
+    stamina,
+    agility,
+    strength,
+    intellect,
+    spirit,
+    bonus_armor,
+    attack_power,
+    ranged_attack_power,
+    spell_power,
+    healing,
+    mp5,
+    defense,
+    block_value,
+    block_pct,
+    spell_penetration
+  )
+  SELECT
+    entry,
+    name,
+    -1 AS AllowableClass,
+    -1 AS AllowableRace,
+    inv_type AS InventoryType,
+    4 AS Quality,
+    0 AS Flags,
+    0 AS FlagsExtra,
+    1 AS BuyCount,
+    0 AS BuyPrice,
+    0 AS SellPrice,
+    0 AS ItemLevel,
+    0 AS RequiredLevel,
+    1 AS stackable,
+    0 AS StatsCount,
+    COALESCE(bonus_armor, 0) AS armor,
+    COALESCE(hit_pct, 0),
+    COALESCE(spell_hit_pct, 0),
+    COALESCE(crit_pct, 0),
+    COALESCE(spell_crit_pct, 0),
+    COALESCE(dodge_pct, 0),
+    COALESCE(block_chance_pct, 0),
+    COALESCE(stamina, 0),
+    COALESCE(agility, 0),
+    COALESCE(strength, 0),
+    COALESCE(intellect, 0),
+    COALESCE(spirit, 0),
+    COALESCE(bonus_armor, 0),
+    COALESCE(attack_power, 0),
+    COALESCE(ranged_attack_power, 0),
+    COALESCE(spell_power, 0),
+    COALESCE(healing, 0),
+    COALESCE(mp5, 0),
+    COALESCE(defense, 0),
+    COALESCE(block_value, 0),
+    COALESCE(block_pct, 0),
+    COALESCE(spell_penetration, 0)
+  FROM tmp_new_targets;
+
   -- Capture any new aura magnitudes from the staging rows so they exist before we assign spells
   INSERT IGNORE INTO helper.davidstats_required_auras (stat, magnitude_percent)
   SELECT stat, magnitude_percent
