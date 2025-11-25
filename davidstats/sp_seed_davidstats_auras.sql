@@ -42,7 +42,7 @@ begin
   ) ENGINE=Memory;
 
   INSERT INTO tmp_requested_auras(stat, magnitude)
-  SELECT r.stat, r.magnitude_percent
+  SELECT DISTINCT r.stat, r.magnitude_percent
   FROM helper.davidstats_required_auras r
   WHERE r.stat IN ('spell_power','healing','hit_pct','spell_hit_pct','crit_pct','spell_crit_pct','dodge_pct','block_chance_pct','block_value','defense');
 
@@ -69,6 +69,7 @@ begin
     UNION ALL
     SELECT 'defense', defense FROM helper.davidstats_items WHERE defense > 0
   ) aura
+  GROUP BY stat, magnitude_percent
   ON DUPLICATE KEY UPDATE magnitude = aura.magnitude_percent;
 
   DROP TEMPORARY TABLE IF EXISTS tmp_davidstats_required;
