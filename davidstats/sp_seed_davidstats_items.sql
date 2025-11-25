@@ -44,7 +44,7 @@ BEGIN
   -- Flatten requested aura spells per item in a deterministic order
   DROP TEMPORARY TABLE IF EXISTS tmp_item_auras;
   CREATE TEMPORARY TABLE tmp_item_auras AS
-  SELECT i.entry, i.stat, i.magnitude_percent, a.spellid, i.ordinal
+  SELECT i.entry, i.stat, i.magnitude_percent, a.spell_id AS spellid, i.ordinal
   FROM (
     SELECT entry, 'hit_pct' stat, hit_pct magnitude_percent, 1 AS ordinal FROM helper.davidstats_items WHERE hit_pct > 0
     UNION ALL
@@ -59,12 +59,12 @@ BEGIN
     SELECT entry, 'block_chance_pct', block_chance_pct, 6 FROM helper.davidstats_items WHERE block_chance_pct > 0
   ) i
   JOIN helper.davidstats_seeded_auras a
-    ON a.stat = i.stat AND a.magnitude_percent = i.magnitude_percent;
+    ON a.stat = i.stat AND a.magnitude = i.magnitude_percent;
 
   -- Rank aura requests per item
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_rn;
   CREATE TEMPORARY TABLE tmp_aura_rn AS
-  SELECT entry, spell_id, ROW_NUMBER() OVER (PARTITION BY entry ORDER BY ordinal, stat) AS rn
+  SELECT entry, spellid, ROW_NUMBER() OVER (PARTITION BY entry ORDER BY ordinal, stat) AS rn
   FROM tmp_item_auras;
 
   -- Identify open spell slots (zeroed) on each staged item and rank them
