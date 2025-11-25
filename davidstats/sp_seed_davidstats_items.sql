@@ -25,8 +25,7 @@ ALTER TABLE helper.davidstats_items
   ADD COLUMN mp5               SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER healing,
   ADD COLUMN defense           SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER mp5,
   ADD COLUMN block_value       SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER defense,
-  ADD COLUMN block_pct         SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER block_value,
-  ADD COLUMN spell_penetration SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER block_pct,
+  ADD COLUMN spell_penetration SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER block_value,
   ADD UNIQUE KEY uq_davidstats_identity (name)$$
 
 CREATE TABLE IF NOT EXISTS helper.davidstats_custom_set_targets (
@@ -46,7 +45,6 @@ CREATE TABLE IF NOT EXISTS helper.davidstats_custom_set_targets (
   mp5 SMALLINT UNSIGNED DEFAULT NULL,
   defense SMALLINT UNSIGNED DEFAULT NULL,
   block_value SMALLINT UNSIGNED DEFAULT NULL,
-  block_pct SMALLINT UNSIGNED DEFAULT NULL,
   block_chance_pct SMALLINT UNSIGNED DEFAULT NULL,
   hit_pct SMALLINT UNSIGNED DEFAULT NULL,
   spell_hit_pct SMALLINT UNSIGNED DEFAULT NULL,
@@ -124,7 +122,6 @@ BEGIN
     mp5,
     defense,
     block_value,
-    block_pct,
     spell_penetration
   )
   SELECT
@@ -163,7 +160,6 @@ BEGIN
     COALESCE(mp5, 0),
     COALESCE(defense, 0),
     COALESCE(block_value, 0),
-    COALESCE(block_pct, 0),
     COALESCE(spell_penetration, 0)
   FROM tmp_new_targets;
 
@@ -184,13 +180,9 @@ BEGIN
              WHEN 'strength'           THEN t.strength
              WHEN 'intellect'          THEN t.intellect
              WHEN 'spirit'             THEN t.spirit
-             WHEN 'attack_power'       THEN t.attack_power
-             WHEN 'ranged_attack_power' THEN t.ranged_attack_power
-             WHEN 'spell_power'        THEN t.spell_power
-             WHEN 'healing'            THEN t.healing
-             WHEN 'mp5'                THEN t.mp5
-             WHEN 'defense'            THEN t.defense
-             WHEN 'block_value'        THEN t.block_value
+              WHEN 'attack_power'       THEN t.attack_power
+              WHEN 'ranged_attack_power' THEN t.ranged_attack_power
+              WHEN 'mp5'                THEN t.mp5
              WHEN 'spell_penetration'  THEN t.spell_penetration
            END AS stat_value
     FROM tmp_new_targets t
@@ -202,12 +194,8 @@ BEGIN
       SELECT 5  AS stat_order, 6  AS stat_type, 'spirit'              AS column_name UNION ALL
       SELECT 6  AS stat_order, 38 AS stat_type, 'attack_power'        AS column_name UNION ALL
       SELECT 7  AS stat_order, 39 AS stat_type, 'ranged_attack_power' AS column_name UNION ALL
-      SELECT 8  AS stat_order, 45 AS stat_type, 'spell_power'         AS column_name UNION ALL
-      SELECT 9  AS stat_order, 41 AS stat_type, 'healing'             AS column_name UNION ALL
-      SELECT 10 AS stat_order, 43 AS stat_type, 'mp5'                 AS column_name UNION ALL
-      SELECT 11 AS stat_order, 12 AS stat_type, 'defense'             AS column_name UNION ALL
-      SELECT 12 AS stat_order, 49 AS stat_type, 'block_value'         AS column_name UNION ALL
-      SELECT 13 AS stat_order, 42 AS stat_type, 'spell_penetration'   AS column_name
+      SELECT 8  AS stat_order, 43 AS stat_type, 'mp5'                 AS column_name UNION ALL
+      SELECT 9  AS stat_order, 42 AS stat_type, 'spell_penetration'   AS column_name
     ) m ON TRUE
   ) s
   WHERE COALESCE(stat_value, 0) > 0;
@@ -273,6 +261,14 @@ BEGIN
     SELECT 'dodge_pct', dodge_pct FROM helper.davidstats_items WHERE dodge_pct > 0
     UNION ALL
     SELECT 'block_chance_pct', block_chance_pct FROM helper.davidstats_items WHERE block_chance_pct > 0
+    UNION ALL
+    SELECT 'healing', healing FROM helper.davidstats_items WHERE healing > 0
+    UNION ALL
+    SELECT 'spell_power', spell_power FROM helper.davidstats_items WHERE spell_power > 0
+    UNION ALL
+    SELECT 'block_value', block_value FROM helper.davidstats_items WHERE block_value > 0
+    UNION ALL
+    SELECT 'defense', defense FROM helper.davidstats_items WHERE defense > 0
   ) aura
   ON DUPLICATE KEY UPDATE magnitude_percent = aura.magnitude_percent;
 
@@ -299,6 +295,14 @@ BEGIN
     SELECT entry, 'dodge_pct', dodge_pct, 5 FROM helper.davidstats_items WHERE dodge_pct > 0
     UNION ALL
     SELECT entry, 'block_chance_pct', block_chance_pct, 6 FROM helper.davidstats_items WHERE block_chance_pct > 0
+    UNION ALL
+    SELECT entry, 'block_value', block_value, 7 FROM helper.davidstats_items WHERE block_value > 0
+    UNION ALL
+    SELECT entry, 'defense', defense, 8 FROM helper.davidstats_items WHERE defense > 0
+    UNION ALL
+    SELECT entry, 'healing', healing, 9 FROM helper.davidstats_items WHERE healing > 0
+    UNION ALL
+    SELECT entry, 'spell_power', spell_power, 10 FROM helper.davidstats_items WHERE spell_power > 0
   ) i
   JOIN helper.davidstats_seeded_auras a
     ON a.stat = i.stat AND a.magnitude = i.magnitude_percent;
