@@ -372,6 +372,20 @@ BEGIN
   SET i.spellid_5 = a.spellid,
       i.spelltrigger_5 = 1;
 
+  -- Recount the primary stats so the StatsCount column stays in sync with any staged changes
+  UPDATE helper.davidstats_items
+  SET StatsCount =
+    (stat_type1  <> 0 AND stat_value1  <> 0) +
+    (stat_type2  <> 0 AND stat_value2  <> 0) +
+    (stat_type3  <> 0 AND stat_value3  <> 0) +
+    (stat_type4  <> 0 AND stat_value4  <> 0) +
+    (stat_type5  <> 0 AND stat_value5  <> 0) +
+    (stat_type6  <> 0 AND stat_value6  <> 0) +
+    (stat_type7  <> 0 AND stat_value7  <> 0) +
+    (stat_type8  <> 0 AND stat_value8  <> 0) +
+    (stat_type9  <> 0 AND stat_value9  <> 0) +
+    (stat_type10 <> 0 AND stat_value10 <> 0);
+
   -- Move the staged rows into the live item_template, ignoring the staging-only aura columns
   REPLACE INTO lplusworld.item_template (
     entry,class,subclass,SoundOverrideSubclass,name,displayid,Quality,Flags,FlagsExtra,BuyCount,BuyPrice,SellPrice,InventoryType,
