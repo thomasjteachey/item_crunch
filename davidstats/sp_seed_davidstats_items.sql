@@ -44,7 +44,7 @@ BEGIN
   -- Flatten requested aura spells per item in a deterministic order
   DROP TEMPORARY TABLE IF EXISTS tmp_item_auras;
   CREATE TEMPORARY TABLE tmp_item_auras AS
-  SELECT i.entry, i.stat, i.magnitude_percent, a.spellid, i.ordinal
+  SELECT i.entry, i.stat, i.magnitude_percent, a.spell_id AS spellid, i.ordinal
   FROM (
     SELECT entry, 'hit_pct' stat, hit_pct magnitude_percent, 1 AS ordinal FROM helper.davidstats_items WHERE hit_pct > 0
     UNION ALL
