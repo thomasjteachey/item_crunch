@@ -14,16 +14,24 @@ begin
   DECLARE v_done INT DEFAULT 0;
 
   /* Aura constants aligned with the scaler */
+  SET @AURA_SPELL_POWER := 13;
+  SET @AURA_HEALING := 76;
+  SET @AURA_BLOCK_VALUE := 158;
   SET @AURA_HIT := 54;   SET @AURA_SPHIT := 55;
   SET @AURA_SPCRIT1 := 57; SET @AURA_SPCRIT2 := 71;
   SET @AURA_CRIT_GENERIC := 52;
   SET @AURA_CRIT_MELEE := 308; SET @AURA_CRIT_RANGED := 290;
   SET @AURA_BLOCK := 51; SET @AURA_DODGE := 49;
+  SET @AURA_DEFENSE := 30;
 
+  SET @DESC_SPELL_POWER := 'Increases damage and healing done by magical spells and effects by up to $s1.';
+  SET @DESC_HEALING := 'Increases healing done by up to $s1.';
   SET @DESC_HIT := 'Improves your chance to hit by $s1%.';
   SET @DESC_SPHIT := 'Improves your chance to hit with spells by $s1%.';
   SET @DESC_CRIT := 'Improves your chance to get a critical strike by $s1%.';
   SET @DESC_SPCRIT := 'Improves your chance to get a critical strike with spells by $s1%.';
+  SET @DESC_BLOCK_VALUE := 'Increases the block value of your shield by $s1.';
+  SET @DESC_DEFENSE := 'Increases defense by $s1.';
 
   /* staging */
   DROP TEMPORARY TABLE IF EXISTS tmp_davidstats_required;
@@ -37,27 +45,35 @@ begin
   ) ENGINE=Memory;
 
   INSERT INTO tmp_davidstats_required(stat, magnitude, aura_id, effect_index, aura_desc)
-  SELECT r.stat,
-         r.magnitude_percent AS magnitude,
-         CASE
-           WHEN r.stat = 'hit_pct' THEN @AURA_HIT
-           WHEN r.stat = 'spell_hit_pct' THEN @AURA_SPHIT
-           WHEN r.stat = 'crit_pct' THEN @AURA_CRIT_GENERIC
-           WHEN r.stat = 'spell_crit_pct' THEN @AURA_SPCRIT1
-           WHEN r.stat = 'dodge_pct' THEN @AURA_DODGE
-           WHEN r.stat IN ('block_chance_pct','block_pct') THEN @AURA_BLOCK
-           ELSE NULL
-         END AS aura_id,
-         1 AS effect_index,
-         CASE
-           WHEN r.stat = 'hit_pct' THEN @DESC_HIT
-           WHEN r.stat = 'spell_hit_pct' THEN @DESC_SPHIT
-           WHEN r.stat = 'crit_pct' THEN @DESC_CRIT
-           WHEN r.stat = 'spell_crit_pct' THEN @DESC_SPCRIT
-           ELSE NULL
-         END AS aura_desc
+  SELECT DISTINCT r.stat,
+                  r.magnitude_percent AS magnitude,
+                  CASE
+                    WHEN r.stat = 'spell_power' THEN @AURA_SPELL_POWER
+                    WHEN r.stat = 'healing' THEN @AURA_HEALING
+                    WHEN r.stat = 'hit_pct' THEN @AURA_HIT
+                    WHEN r.stat = 'spell_hit_pct' THEN @AURA_SPHIT
+                    WHEN r.stat = 'crit_pct' THEN @AURA_CRIT_GENERIC
+                    WHEN r.stat = 'spell_crit_pct' THEN @AURA_SPCRIT1
+                    WHEN r.stat = 'dodge_pct' THEN @AURA_DODGE
+                    WHEN r.stat = 'block_chance_pct' THEN @AURA_BLOCK
+                    WHEN r.stat = 'block_value' THEN @AURA_BLOCK_VALUE
+                    WHEN r.stat = 'defense' THEN @AURA_DEFENSE
+                    ELSE NULL
+                  END AS aura_id,
+                  1 AS effect_index,
+                  CASE
+                    WHEN r.stat = 'spell_power' THEN @DESC_SPELL_POWER
+                    WHEN r.stat = 'healing' THEN @DESC_HEALING
+                    WHEN r.stat = 'hit_pct' THEN @DESC_HIT
+                    WHEN r.stat = 'spell_hit_pct' THEN @DESC_SPHIT
+                    WHEN r.stat = 'crit_pct' THEN @DESC_CRIT
+                    WHEN r.stat = 'spell_crit_pct' THEN @DESC_SPCRIT
+                    WHEN r.stat = 'block_value' THEN @DESC_BLOCK_VALUE
+                    WHEN r.stat = 'defense' THEN @DESC_DEFENSE
+                    ELSE NULL
+                  END AS aura_desc
   FROM helper.davidstats_required_auras r
-  WHERE r.stat IN ('hit_pct','spell_hit_pct','crit_pct','spell_crit_pct','dodge_pct','block_pct','block_chance_pct');
+  WHERE r.stat IN ('spell_power','healing','hit_pct','spell_hit_pct','crit_pct','spell_crit_pct','dodge_pct','block_chance_pct','block_value','defense');
 
   /* log table for visibility */
   CREATE TABLE IF NOT EXISTS helper.davidstats_seeded_auras(
@@ -102,10 +118,13 @@ begin
                  CASE WHEN EffectAura_1 = v_aura_id THEN EffectBasePoints_1
                       WHEN EffectAura_2 = v_aura_id THEN EffectBasePoints_2
                       ELSE EffectBasePoints_3 END AS base_points,
-                 Description_Lang_enUS AS desc_en
+                 Description_Lang_enUS AS desc_en,
+                 CASE WHEN EffectAura_1 = v_aura_id THEN EffectAura_1
+                      WHEN EffectAura_2 = v_aura_id THEN EffectAura_2
+                      ELSE EffectAura_3 END AS matched_aura
           FROM dbc.spell_lplus
         ) s
-        WHERE s.eff_idx = v_effect_index
+        WHERE s.matched_aura = v_aura_id
           AND (s.base_points + 1) = v_magnitude
           AND (v_desc IS NULL OR s.desc_en = v_desc)
         ORDER BY s.ID
@@ -134,10 +153,13 @@ begin
                  CASE WHEN EffectAura_1 = v_aura_id THEN EffectBasePoints_1
                       WHEN EffectAura_2 = v_aura_id THEN EffectBasePoints_2
                       ELSE EffectBasePoints_3 END AS base_points,
-                 Description_Lang_enUS AS desc_en
+                 Description_Lang_enUS AS desc_en,
+                 CASE WHEN EffectAura_1 = v_aura_id THEN EffectAura_1
+                      WHEN EffectAura_2 = v_aura_id THEN EffectAura_2
+                      ELSE EffectAura_3 END AS matched_aura
           FROM dbc.spell_lplus
         ) s
-        WHERE s.eff_idx = v_effect_index
+        WHERE s.matched_aura = v_aura_id
           AND (v_desc IS NULL OR s.desc_en = v_desc)
         ORDER BY delta, candidate_id
         LIMIT 1

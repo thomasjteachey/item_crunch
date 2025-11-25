@@ -25,8 +25,7 @@ ALTER TABLE helper.davidstats_items
   ADD COLUMN mp5               SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER healing,
   ADD COLUMN defense           SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER mp5,
   ADD COLUMN block_value       SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER defense,
-  ADD COLUMN block_pct         SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER block_value,
-  ADD COLUMN spell_penetration SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER block_pct,
+  ADD COLUMN spell_penetration SMALLINT UNSIGNED NOT NULL DEFAULT 0 AFTER block_value,
   ADD UNIQUE KEY uq_davidstats_identity (name)$$
 
 CREATE TABLE IF NOT EXISTS helper.davidstats_custom_set_targets (
@@ -46,7 +45,6 @@ CREATE TABLE IF NOT EXISTS helper.davidstats_custom_set_targets (
   mp5 SMALLINT UNSIGNED DEFAULT NULL,
   defense SMALLINT UNSIGNED DEFAULT NULL,
   block_value SMALLINT UNSIGNED DEFAULT NULL,
-  block_pct SMALLINT UNSIGNED DEFAULT NULL,
   block_chance_pct SMALLINT UNSIGNED DEFAULT NULL,
   hit_pct SMALLINT UNSIGNED DEFAULT NULL,
   spell_hit_pct SMALLINT UNSIGNED DEFAULT NULL,
@@ -124,7 +122,6 @@ BEGIN
     mp5,
     defense,
     block_value,
-    block_pct,
     spell_penetration
   )
   SELECT
@@ -163,9 +160,91 @@ BEGIN
     COALESCE(mp5, 0),
     COALESCE(defense, 0),
     COALESCE(block_value, 0),
-    COALESCE(block_pct, 0),
     COALESCE(spell_penetration, 0)
   FROM tmp_new_targets;
+
+  -- Map requested stat columns into stat_type#/stat_value# slots for the new targets
+  DROP TEMPORARY TABLE IF EXISTS tmp_new_stats;
+  CREATE TEMPORARY TABLE tmp_new_stats AS
+  SELECT entry,
+         ROW_NUMBER() OVER (PARTITION BY entry ORDER BY stat_order) AS rn,
+         stat_type,
+         stat_value
+  FROM (
+    SELECT t.entry,
+           m.stat_order,
+           m.stat_type,
+           CASE m.column_name
+             WHEN 'stamina'            THEN t.stamina
+             WHEN 'agility'            THEN t.agility
+             WHEN 'strength'           THEN t.strength
+             WHEN 'intellect'          THEN t.intellect
+             WHEN 'spirit'             THEN t.spirit
+              WHEN 'attack_power'       THEN t.attack_power
+              WHEN 'ranged_attack_power' THEN t.ranged_attack_power
+              WHEN 'mp5'                THEN t.mp5
+             WHEN 'spell_penetration'  THEN t.spell_penetration
+           END AS stat_value
+    FROM tmp_new_targets t
+    JOIN (
+      SELECT 1  AS stat_order, 7  AS stat_type, 'stamina'             AS column_name UNION ALL
+      SELECT 2  AS stat_order, 3  AS stat_type, 'agility'             AS column_name UNION ALL
+      SELECT 3  AS stat_order, 4  AS stat_type, 'strength'            AS column_name UNION ALL
+      SELECT 4  AS stat_order, 5  AS stat_type, 'intellect'           AS column_name UNION ALL
+      SELECT 5  AS stat_order, 6  AS stat_type, 'spirit'              AS column_name UNION ALL
+      SELECT 6  AS stat_order, 38 AS stat_type, 'attack_power'        AS column_name UNION ALL
+      SELECT 7  AS stat_order, 39 AS stat_type, 'ranged_attack_power' AS column_name UNION ALL
+      SELECT 8  AS stat_order, 43 AS stat_type, 'mp5'                 AS column_name UNION ALL
+      SELECT 9  AS stat_order, 42 AS stat_type, 'spell_penetration'   AS column_name
+    ) m ON TRUE
+  ) s
+  WHERE COALESCE(stat_value, 0) > 0;
+
+  UPDATE helper.davidstats_items i
+  JOIN (SELECT entry, COUNT(*) AS cnt FROM tmp_new_stats GROUP BY entry) s
+    ON i.entry = s.entry
+   AND EXISTS (SELECT 1 FROM tmp_new_targets t WHERE t.entry = i.entry)
+  SET i.StatsCount = s.cnt;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 1
+  SET i.stat_type1 = s.stat_type, i.stat_value1 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 2
+  SET i.stat_type2 = s.stat_type, i.stat_value2 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 3
+  SET i.stat_type3 = s.stat_type, i.stat_value3 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 4
+  SET i.stat_type4 = s.stat_type, i.stat_value4 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 5
+  SET i.stat_type5 = s.stat_type, i.stat_value5 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 6
+  SET i.stat_type6 = s.stat_type, i.stat_value6 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 7
+  SET i.stat_type7 = s.stat_type, i.stat_value7 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 8
+  SET i.stat_type8 = s.stat_type, i.stat_value8 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 9
+  SET i.stat_type9 = s.stat_type, i.stat_value9 = s.stat_value;
+
+  UPDATE helper.davidstats_items i
+  JOIN tmp_new_stats s ON i.entry = s.entry AND s.rn = 10
+  SET i.stat_type10 = s.stat_type, i.stat_value10 = s.stat_value;
 
   -- Capture any new aura magnitudes from the staging rows so they exist before we assign spells
   INSERT IGNORE INTO helper.davidstats_required_auras (stat, magnitude_percent)
@@ -182,6 +261,14 @@ BEGIN
     SELECT 'dodge_pct', dodge_pct FROM helper.davidstats_items WHERE dodge_pct > 0
     UNION ALL
     SELECT 'block_chance_pct', block_chance_pct FROM helper.davidstats_items WHERE block_chance_pct > 0
+    UNION ALL
+    SELECT 'healing', healing FROM helper.davidstats_items WHERE healing > 0
+    UNION ALL
+    SELECT 'spell_power', spell_power FROM helper.davidstats_items WHERE spell_power > 0
+    UNION ALL
+    SELECT 'block_value', block_value FROM helper.davidstats_items WHERE block_value > 0
+    UNION ALL
+    SELECT 'defense', defense FROM helper.davidstats_items WHERE defense > 0
   ) aura
   ON DUPLICATE KEY UPDATE magnitude_percent = aura.magnitude_percent;
 
@@ -208,6 +295,14 @@ BEGIN
     SELECT entry, 'dodge_pct', dodge_pct, 5 FROM helper.davidstats_items WHERE dodge_pct > 0
     UNION ALL
     SELECT entry, 'block_chance_pct', block_chance_pct, 6 FROM helper.davidstats_items WHERE block_chance_pct > 0
+    UNION ALL
+    SELECT entry, 'block_value', block_value, 7 FROM helper.davidstats_items WHERE block_value > 0
+    UNION ALL
+    SELECT entry, 'defense', defense, 8 FROM helper.davidstats_items WHERE defense > 0
+    UNION ALL
+    SELECT entry, 'healing', healing, 9 FROM helper.davidstats_items WHERE healing > 0
+    UNION ALL
+    SELECT entry, 'spell_power', spell_power, 10 FROM helper.davidstats_items WHERE spell_power > 0
   ) i
   JOIN helper.davidstats_seeded_auras a
     ON a.stat = i.stat AND a.magnitude = i.magnitude_percent;
