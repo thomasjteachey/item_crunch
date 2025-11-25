@@ -1,34 +1,17 @@
 # davidstats workspace
 
 The `davidstats` folder holds the messy CSV notes for the custom set revamp and
-helpers to normalize them into something we can feed into `item_template` and
-`dbc.spell_lplus`.
+helpers to keep them flowing into `item_template` and `dbc.spell_lplus` using
+stored procedures only.
 
 ## Files
 - `wow ideas.csv` – raw notes for each class/spec set.
 - `current-stats.txt` – current `item_template` snapshot for the custom items.
-- `normalize_custom_sets.py` – turns `wow ideas.csv` into structured targets and
-  a list of aura magnitudes we need available in `dbc.spell_lplus`.
-- Generated outputs:
-  - `custom_set_targets.csv`
-  - `required_auras.csv`
+- `custom_set_targets.csv` – snapshot of the targeted stats per slot.
+- `required_auras.csv` – snapshot of the percent-based auras each item needs.
+- `custom_item_inserts.sql` – example `INSERT` statements for staging the gear.
 
 ## Usage
-Run the normalizer whenever the notes change:
-
-```bash
-python normalize_custom_sets.py
-```
-
-- `custom_set_targets.csv` captures the per-slot stat totals as discrete
-  columns. It is meant to be joined back to the item rows in
-  `current-stats.txt` (by whatever mapping you prefer) so you can overwrite the
-  existing stats with the new targets.
-- `required_auras.csv` lists the percent-based stats (hit, crit, dodge, block
-  chance, etc.) that must exist in `dbc.spell_lplus`. Seed any missing entries
-  by cloning the closest spell and adjusting its `EffectBasePoints_1` to match
-  the magnitude shown here.
-
 When wiring the stats into `item_template`, remember that the DBC auras drive
 percent-based effects. If an item needs a hit/crit/block aura that isn't in
 `dbc.spell_lplus`, clone an existing aura spell with the same `EffectAura`
@@ -60,10 +43,9 @@ spell IDs.
 
 ### Building insert statements for the gear
 
-Use the new `sp_seed_davidstats_items.sql` helper to keep the percent-based
-auras wired up while producing final `item_template` rows. When you just need
-explicit INSERT lines for every staged item, run the generator and apply the
-statements directly.
+Use `sp_seed_davidstats_items.sql` to keep the percent-based auras wired up
+while producing final `item_template` rows. When you just need explicit `INSERT`
+lines for every staged item, use the stored procedure `sp_dump_davidstats_item_inserts`.
 
 1. Ensure your staging data is loaded into `helper.davidstats_items` (the table
    matches `lplusworld.item_template` and also exposes `hit_pct`,
@@ -71,8 +53,8 @@ statements directly.
    `block_chance_pct` for any percent-based effects you want added). Keep any
    existing spell slots populated; empty slots will be filled with the new aura
    spells.
- 2. Load `sp_seed_davidstats_auras.sql` and `sp_seed_davidstats_items.sql` into
-    MySQL.
+2. Load `sp_seed_davidstats_auras.sql`, `sp_seed_davidstats_items.sql`, and
+   `sp_dump_davidstats_item_inserts.sql` into MySQL.
 3. Call `CALL helper.sp_seed_davidstats_items();`
 
 The procedure will:
@@ -85,15 +67,14 @@ The procedure will:
 - `REPLACE` the staged rows into `lplusworld.item_template`, ignoring the
   staging-only percent columns.
 
-If you want standalone `INSERT` statements for every staged row, generate them
-from `current-stats.txt`:
+If you want standalone `INSERT` statements for every staged row, call the dump
+procedure and select the generated statements:
 
-```bash
-python generate_item_inserts.py
+```sql
+CALL helper.sp_dump_davidstats_item_inserts();
+SELECT insert_stmt FROM helper.davidstats_item_inserts ORDER BY entry;
 ```
 
-This writes `custom_item_inserts.sql`, which contains an `INSERT INTO
-helper.davidstats_items (...) VALUES (...)` statement for each row in
-`current-stats.txt`. Load the aura seeder first so any referenced `spellid_*`
-values already exist in `dbc.spell_lplus`, then execute the generated file to
-populate the helper table.
+The dump procedure rebuilds per-row `INSERT INTO helper.davidstats_items (...)`
+statements purely inside MySQL, matching the current contents of
+`helper.davidstats_items` (including the staging-only percent columns).
