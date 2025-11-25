@@ -34,6 +34,43 @@ begin
   SET @DESC_DEFENSE := 'Increases defense by $s1.';
 
   /* staging */
+  DROP TEMPORARY TABLE IF EXISTS tmp_requested_auras;
+  CREATE TEMPORARY TABLE tmp_requested_auras(
+    stat VARCHAR(64) NOT NULL,
+    magnitude INT NOT NULL,
+    PRIMARY KEY(stat, magnitude)
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_requested_auras(stat, magnitude)
+  SELECT r.stat, r.magnitude_percent
+  FROM helper.davidstats_required_auras r
+  WHERE r.stat IN ('spell_power','healing','hit_pct','spell_hit_pct','crit_pct','spell_crit_pct','dodge_pct','block_chance_pct','block_value','defense');
+
+  INSERT INTO tmp_requested_auras(stat, magnitude)
+  SELECT stat, magnitude_percent
+  FROM (
+    SELECT 'hit_pct' stat, hit_pct magnitude_percent FROM helper.davidstats_items WHERE hit_pct > 0
+    UNION ALL
+    SELECT 'spell_hit_pct', spell_hit_pct FROM helper.davidstats_items WHERE spell_hit_pct > 0
+    UNION ALL
+    SELECT 'crit_pct', crit_pct FROM helper.davidstats_items WHERE crit_pct > 0
+    UNION ALL
+    SELECT 'spell_crit_pct', spell_crit_pct FROM helper.davidstats_items WHERE spell_crit_pct > 0
+    UNION ALL
+    SELECT 'dodge_pct', dodge_pct FROM helper.davidstats_items WHERE dodge_pct > 0
+    UNION ALL
+    SELECT 'block_chance_pct', block_chance_pct FROM helper.davidstats_items WHERE block_chance_pct > 0
+    UNION ALL
+    SELECT 'healing', healing FROM helper.davidstats_items WHERE healing > 0
+    UNION ALL
+    SELECT 'spell_power', spell_power FROM helper.davidstats_items WHERE spell_power > 0
+    UNION ALL
+    SELECT 'block_value', block_value FROM helper.davidstats_items WHERE block_value > 0
+    UNION ALL
+    SELECT 'defense', defense FROM helper.davidstats_items WHERE defense > 0
+  ) aura
+  ON DUPLICATE KEY UPDATE magnitude = aura.magnitude_percent;
+
   DROP TEMPORARY TABLE IF EXISTS tmp_davidstats_required;
   CREATE TEMPORARY TABLE tmp_davidstats_required(
     stat VARCHAR(64) NOT NULL,
@@ -45,35 +82,34 @@ begin
   ) ENGINE=Memory;
 
   INSERT INTO tmp_davidstats_required(stat, magnitude, aura_id, effect_index, aura_desc)
-  SELECT DISTINCT r.stat,
-                  r.magnitude_percent AS magnitude,
-                  CASE
-                    WHEN r.stat = 'spell_power' THEN @AURA_SPELL_POWER
-                    WHEN r.stat = 'healing' THEN @AURA_HEALING
-                    WHEN r.stat = 'hit_pct' THEN @AURA_HIT
-                    WHEN r.stat = 'spell_hit_pct' THEN @AURA_SPHIT
-                    WHEN r.stat = 'crit_pct' THEN @AURA_CRIT_GENERIC
-                    WHEN r.stat = 'spell_crit_pct' THEN @AURA_SPCRIT1
-                    WHEN r.stat = 'dodge_pct' THEN @AURA_DODGE
-                    WHEN r.stat = 'block_chance_pct' THEN @AURA_BLOCK
-                    WHEN r.stat = 'block_value' THEN @AURA_BLOCK_VALUE
-                    WHEN r.stat = 'defense' THEN @AURA_DEFENSE
-                    ELSE NULL
-                  END AS aura_id,
-                  1 AS effect_index,
-                  CASE
-                    WHEN r.stat = 'spell_power' THEN @DESC_SPELL_POWER
-                    WHEN r.stat = 'healing' THEN @DESC_HEALING
-                    WHEN r.stat = 'hit_pct' THEN @DESC_HIT
-                    WHEN r.stat = 'spell_hit_pct' THEN @DESC_SPHIT
-                    WHEN r.stat = 'crit_pct' THEN @DESC_CRIT
-                    WHEN r.stat = 'spell_crit_pct' THEN @DESC_SPCRIT
-                    WHEN r.stat = 'block_value' THEN @DESC_BLOCK_VALUE
-                    WHEN r.stat = 'defense' THEN @DESC_DEFENSE
-                    ELSE NULL
-                  END AS aura_desc
-  FROM helper.davidstats_required_auras r
-  WHERE r.stat IN ('spell_power','healing','hit_pct','spell_hit_pct','crit_pct','spell_crit_pct','dodge_pct','block_chance_pct','block_value','defense');
+  SELECT r.stat,
+         r.magnitude AS magnitude,
+         CASE
+           WHEN r.stat = 'spell_power' THEN @AURA_SPELL_POWER
+           WHEN r.stat = 'healing' THEN @AURA_HEALING
+           WHEN r.stat = 'hit_pct' THEN @AURA_HIT
+           WHEN r.stat = 'spell_hit_pct' THEN @AURA_SPHIT
+           WHEN r.stat = 'crit_pct' THEN @AURA_CRIT_GENERIC
+           WHEN r.stat = 'spell_crit_pct' THEN @AURA_SPCRIT1
+           WHEN r.stat = 'dodge_pct' THEN @AURA_DODGE
+           WHEN r.stat = 'block_chance_pct' THEN @AURA_BLOCK
+           WHEN r.stat = 'block_value' THEN @AURA_BLOCK_VALUE
+           WHEN r.stat = 'defense' THEN @AURA_DEFENSE
+           ELSE NULL
+         END AS aura_id,
+         1 AS effect_index,
+         CASE
+           WHEN r.stat = 'spell_power' THEN @DESC_SPELL_POWER
+           WHEN r.stat = 'healing' THEN @DESC_HEALING
+           WHEN r.stat = 'hit_pct' THEN @DESC_HIT
+           WHEN r.stat = 'spell_hit_pct' THEN @DESC_SPHIT
+           WHEN r.stat = 'crit_pct' THEN @DESC_CRIT
+           WHEN r.stat = 'spell_crit_pct' THEN @DESC_SPCRIT
+           WHEN r.stat = 'block_value' THEN @DESC_BLOCK_VALUE
+           WHEN r.stat = 'defense' THEN @DESC_DEFENSE
+           ELSE NULL
+         END AS aura_desc
+  FROM tmp_requested_auras r;
 
   /* log table for visibility */
   CREATE TABLE IF NOT EXISTS helper.davidstats_seeded_auras(
