@@ -59,18 +59,6 @@ CREATE TABLE IF NOT EXISTS helper.davidstats_custom_set_targets (
 DROP PROCEDURE IF EXISTS helper.sp_seed_davidstats_items$$
 CREATE PROCEDURE helper.sp_seed_davidstats_items()
 BEGIN
-  -- Refresh the normalized targets snapshot from the CSV so new slots are staged automatically
-  TRUNCATE TABLE helper.davidstats_custom_set_targets;
-
-  LOAD DATA LOCAL INFILE 'davidstats/custom_set_targets.csv'
-    INTO TABLE helper.davidstats_custom_set_targets
-    FIELDS TERMINATED BY ',' ENCLOSED BY '"'
-    IGNORE 1 LINES
-    (class, archetype, slot, stamina, agility, strength, intellect, spirit, bonus_armor,
-     attack_power, ranged_attack_power, spell_power, healing, mp5, defense, block_value,
-     block_pct, block_chance_pct, hit_pct, spell_hit_pct, crit_pct, spell_crit_pct, dodge_pct,
-     spell_penetration);
-
   -- Assign entry IDs for any slots that are missing from the staging table
   DROP TEMPORARY TABLE IF EXISTS tmp_new_targets;
   CREATE TEMPORARY TABLE tmp_new_targets AS
