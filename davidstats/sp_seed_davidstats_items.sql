@@ -59,7 +59,7 @@ BEGIN
     SELECT entry, 'block_chance_pct', block_chance_pct, 6 FROM helper.davidstats_items WHERE block_chance_pct > 0
   ) i
   JOIN helper.davidstats_seeded_auras a
-    ON a.stat = i.stat AND a.magnitude_percent = i.magnitude_percent;
+    ON a.stat = i.stat AND a.magnitude = i.magnitude_percent;
 
   -- Rank aura requests per item
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_rn;
