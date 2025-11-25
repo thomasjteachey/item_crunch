@@ -23,7 +23,7 @@ BEGIN
   /* Build an expression that will CONCAT each value with safe quoting. */
   SELECT GROUP_CONCAT(
            CONCAT('COALESCE(QUOTE(`', COLUMN_NAME, '`),''NULL'')')
-           ORDER BY ORDINAL_POSITION SEPARATOR ", ' , ', "
+           ORDER BY ORDINAL_POSITION SEPARATOR ', '' , '', '
          )
     INTO v_value_expr
   FROM information_schema.COLUMNS
