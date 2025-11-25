@@ -1,18 +1,17 @@
 -- Seed davidstats gear into lplusworld.item_template while wiring required aura spells
 -- Percent auras are looked up in dbc.spell_lplus (cloned via helper.sp_seed_davidstats_auras when missing)
-
 DELIMITER $$
 
-CREATE TABLE IF NOT EXISTS helper.davidstats_items LIKE lplusworld.item_template$$
+DROP TABLE IF EXISTS helper.davidstats_items$$
+CREATE TABLE helper.davidstats_items LIKE lplusworld.item_template$$
 
--- Staging-only columns to describe the percent-based auras we need per item
 ALTER TABLE helper.davidstats_items
-  ADD COLUMN IF NOT EXISTS hit_pct TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER trueItemLevel,
-  ADD COLUMN IF NOT EXISTS spell_hit_pct TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER hit_pct,
-  ADD COLUMN IF NOT EXISTS crit_pct TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER spell_hit_pct,
-  ADD COLUMN IF NOT EXISTS spell_crit_pct TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER crit_pct,
-  ADD COLUMN IF NOT EXISTS dodge_pct TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER spell_crit_pct,
-  ADD COLUMN IF NOT EXISTS block_chance_pct TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER dodge_pct$$
+  ADD COLUMN hit_pct           TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER trueItemLevel,
+  ADD COLUMN spell_hit_pct     TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER hit_pct,
+  ADD COLUMN crit_pct          TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER spell_hit_pct,
+  ADD COLUMN spell_crit_pct    TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER crit_pct,
+  ADD COLUMN dodge_pct         TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER spell_crit_pct,
+  ADD COLUMN block_chance_pct  TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER dodge_pct$$
 
 DROP PROCEDURE IF EXISTS helper.sp_seed_davidstats_items$$
 CREATE PROCEDURE helper.sp_seed_davidstats_items()
@@ -65,7 +64,7 @@ BEGIN
   -- Rank aura requests per item
   DROP TEMPORARY TABLE IF EXISTS tmp_aura_rn;
   CREATE TEMPORARY TABLE tmp_aura_rn AS
-  SELECT entry, spellid, ROW_NUMBER() OVER (PARTITION BY entry ORDER BY ordinal, stat) AS rn
+  SELECT entry, spell_id, ROW_NUMBER() OVER (PARTITION BY entry ORDER BY ordinal, stat) AS rn
   FROM tmp_item_auras;
 
   -- Identify open spell slots (zeroed) on each staged item and rank them
