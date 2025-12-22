@@ -39,7 +39,11 @@ proc: BEGIN
   DECLARE v_delta               INT;
   DECLARE v_nudge_pass          TINYINT UNSIGNED;
 
-  DECLARE v_scale_auras      TINYINT(1);
+  
+  DECLARE v_prev_delta          INT;
+  DECLARE v_stall_count         TINYINT UNSIGNED;
+  DECLARE v_added_to_queue      TINYINT UNSIGNED;
+DECLARE v_scale_auras      TINYINT(1);
   DECLARE v_keep_bonus_armor TINYINT(1);
   DECLARE v_scale_unknown    TINYINT(1);
 
@@ -591,26 +595,46 @@ proc: BEGIN
     SET @ilvl_defer_estimate := 1;
 
     SET v_nudge_pass   := 0;
-    SET v_nudge_target := p_target_ilvl;
+    
+  SET v_prev_delta := NULL;
+  SET v_stall_count := 0;  SET v_added_to_queue := 0;
+  SET v_nudge_target := p_target_ilvl;
 
     nudge: LOOP
-      CALL helper.sp_EstimateItemLevels();
+    /* Ensure this item gets re-estimated even if sp_EstimateItemLevels is queue-driven */
+    IF v_added_to_queue = 0 THEN
+      IF (SELECT COUNT(*) FROM helper.tune_queue WHERE entry = p_entry) = 0 THEN
+        INSERT INTO helper.tune_queue (entry, target_ilvl, mode, apply_change)
+        VALUES (p_entry, p_target_ilvl, 'NUDGE', 0);
+        SET v_added_to_queue := 1;
+      END IF;
+    END IF;
 
-      SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED)
+    CALL helper.sp_EstimateItemLevels();
+SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED)
         INTO v_cur_ilvl
         FROM lplusworld.item_template it
        WHERE it.entry = p_entry;
 
       SET v_delta := v_cur_ilvl - p_target_ilvl;
 
-      IF v_delta = 0 THEN
+      
+    /* Stall detection: if delta isn't changing, stop nudging */
+    IF v_prev_delta IS NOT NULL AND v_delta = v_prev_delta THEN
+      SET v_stall_count := v_stall_count + 1;
+    ELSE
+      SET v_stall_count := 0;
+END IF;
+    SET v_prev_delta := v_delta;
+    IF v_stall_count >= 2 THEN
+      LEAVE nudge;
+    END IF;
+IF v_delta = 0 THEN
         LEAVE nudge;
       END IF;
 
       SET v_nudge_pass := v_nudge_pass + 1;
-      IF v_nudge_pass > 3 THEN
-        LEAVE nudge;
-      END IF;
+      IF v_nudge_pass > 25 THEN LEAVE nudge; END IF;
 
       SET v_nudge_target := GREATEST(1, p_target_ilvl - v_delta);
 
@@ -623,9 +647,16 @@ proc: BEGIN
         v_scale_unknown
       );
     END LOOP;
+  /* Cleanup: remove our temporary queue entry (if we added one) */
+  IF v_added_to_queue = 1 THEN
+    DELETE FROM helper.tune_queue
+    WHERE entry = p_entry
+      AND mode = 'NUDGE'
+      AND apply_change = 0;
+  END IF;
 
-    SET @ilvl_defer_estimate := v_prev_defer_estimate;
-    CALL helper.sp_EstimateItemLevels();
+  SET @ilvl_defer_estimate := v_prev_defer_estimate;
+CALL helper.sp_EstimateItemLevels();
   END IF;
 
 END proc

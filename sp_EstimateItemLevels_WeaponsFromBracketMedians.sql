@@ -23,7 +23,7 @@ BEGIN
       (CASE WHEN s.EffectAura_3 IN (13,115,135) THEN s.EffectBasePoints_3+1 ELSE 0 END)
     ) AS total_sp
   FROM equip_spells es
-  JOIN dbc.spell_lplus s ON s.entry = es.sid
+  JOIN dbc.spell_lplus s ON s.ID = es.sid
   GROUP BY es.entry;
 
   /* 1) Eligible weapons + DPS + bracket (caster weapons add back traded DPS = total_sp/4) */
@@ -48,7 +48,7 @@ BEGIN
       (COALESCE(it.dmg_min1,0)+COALESCE(it.dmg_max1,0))/2.0 +
       (COALESCE(it.dmg_min2,0)+COALESCE(it.dmg_max2,0))/2.0
     ) / NULLIF(it.delay/1000.0,0)
-      + COALESCE(sp.total_sp, 0) / 4.0 AS cur_dps_with_trade
+      + (CASE WHEN COALESCE(it.caster,0) = 1 THEN COALESCE(sp.total_sp,0)/4.0 ELSE 0 END) AS cur_dps_with_trade
   FROM lplusworld.item_template it
   LEFT JOIN tmp_weapon_spellpower sp ON sp.entry = it.entry
   WHERE it.class = 2
