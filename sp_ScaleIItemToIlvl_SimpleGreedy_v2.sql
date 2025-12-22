@@ -33,6 +33,12 @@ proc: BEGIN
   DECLARE v_total_sp_tgt     DOUBLE;
   DECLARE v_sp_ratio         DOUBLE;
 
+  DECLARE v_prev_defer_estimate TINYINT(1);
+  DECLARE v_cur_ilvl            INT;
+  DECLARE v_nudge_target        INT;
+  DECLARE v_delta               INT;
+  DECLARE v_nudge_pass          TINYINT UNSIGNED;
+
   DECLARE v_scale_auras      TINYINT(1);
   DECLARE v_keep_bonus_armor TINYINT(1);
   DECLARE v_scale_unknown    TINYINT(1);
@@ -580,10 +586,46 @@ proc: BEGIN
   /* ========================
      ITEMLEVEL ESTIMATE (IF NOT DEFERRED)
      ======================== */
-  IF p_apply = 1 THEN
-    IF IFNULL(@ilvl_defer_estimate, 0) = 0 THEN
+  IF p_apply = 1 AND IFNULL(@ilvl_defer_estimate, 0) = 0 THEN
+    SET v_prev_defer_estimate := @ilvl_defer_estimate;
+    SET @ilvl_defer_estimate := 1;
+
+    SET v_nudge_pass   := 0;
+    SET v_nudge_target := p_target_ilvl;
+
+    nudge: LOOP
       CALL helper.sp_EstimateItemLevels();
-    END IF;
+
+      SELECT CAST(IFNULL(it.trueItemLevel, it.ItemLevel) AS SIGNED)
+        INTO v_cur_ilvl
+        FROM lplusworld.item_template it
+       WHERE it.entry = p_entry;
+
+      SET v_delta := v_cur_ilvl - p_target_ilvl;
+
+      IF v_delta = 0 THEN
+        LEAVE nudge;
+      END IF;
+
+      SET v_nudge_pass := v_nudge_pass + 1;
+      IF v_nudge_pass > 3 THEN
+        LEAVE nudge;
+      END IF;
+
+      SET v_nudge_target := GREATEST(1, p_target_ilvl - v_delta);
+
+      CALL helper.sp_ScaleItemToIlvl_SimpleGreedy_v2(
+        p_entry,
+        v_nudge_target,
+        p_apply,
+        v_scale_auras,
+        v_keep_bonus_armor,
+        v_scale_unknown
+      );
+    END LOOP;
+
+    SET @ilvl_defer_estimate := v_prev_defer_estimate;
+    CALL helper.sp_EstimateItemLevels();
   END IF;
 
 END proc
