@@ -14,9 +14,9 @@ BEGIN
   SET @W_SD_ONE  := 159;      -- +Damage one school
   SET @W_HIT     := 2200;     -- Melee/Ranged Hit %
   SET @W_SPHIT   := 2500;     -- Spell Hit %
+  SET @W_PEN_SPELL := 275;   -- SPELL PENETRATION (per point)  -- SPELL PEN
   SET @W_CRIT    := 3200;     -- Melee/Ranged Crit %
   SET @W_SPCRIT  := 2600;     -- Spell Crit %
-  SET @W_SPELL_PEN := 275;    -- Spell Penetration
   SET @W_BLOCKVALUE := 150;   -- Block Value
   SET @W_BLOCK   := 1300;     -- Block Chance %
   SET @W_PARRY   := 3600;     -- Parry Chance %
@@ -33,6 +33,7 @@ BEGIN
   SET @AURA_AP := 99;    SET @AURA_RAP := 124;
   SET @AURA_AP_VERSUS := 102; SET @AURA_RAP_VERSUS := 131;
   SET @AURA_HIT := 54;   SET @AURA_SPHIT := 55;
+  SET @AURA_PEN_SPELL := 143;         -- SPELL_AURA_MOD_TARGET_RESISTANCE  -- SPELL PEN
   SET @AURA_SPCRIT1 := 57; SET @AURA_SPCRIT2 := 71;
   SET @AURA_CRIT_MELEE := 308; SET @AURA_CRIT_RANGED := 290; SET @AURA_CRIT_GENERIC := 52;
   SET @AURA_BLOCKVALUE := 158; SET @AURA_BLOCKVALUE_PCT := 150;
@@ -43,7 +44,6 @@ BEGIN
   SET @AURA_HEAL1 := 115; SET @AURA_HEAL2 := 135;  -- +Healing
   SET @AURA_MP5 := 85;   -- Misc=0 => mana regen
   SET @AURA_HP5 := 83;   -- health regen per 5
-  SET @AURA_SPELL_PEN := 123; -- SPELL_AURA_MOD_RESISTANCE
 
   SET @SKILL_DEFENSE := 95;
   SET @SKILL_DAGGERS := 173;
@@ -135,6 +135,7 @@ BEGIN
     apversus_amt DOUBLE NOT NULL DEFAULT 0,
     hit_amt     DOUBLE NOT NULL DEFAULT 0,
     sphit_amt   DOUBLE NOT NULL DEFAULT 0,
+    pen_spell_amt DOUBLE NOT NULL DEFAULT 0,   -- SPELL PEN
     spcrit_amt  DOUBLE NOT NULL DEFAULT 0,
     crit_amt    DOUBLE NOT NULL DEFAULT 0,
     blockvalue_amt DOUBLE NOT NULL DEFAULT 0,
@@ -149,21 +150,25 @@ BEGIN
     sd_one_amt  DOUBLE NOT NULL DEFAULT 0,
     heal_amt    DOUBLE NOT NULL DEFAULT 0,
     mp5_amt     DOUBLE NOT NULL DEFAULT 0,
-    hp5_amt     DOUBLE NOT NULL DEFAULT 0,
-    spell_pen_amt DOUBLE NOT NULL DEFAULT 0
+    hp5_amt     DOUBLE NOT NULL DEFAULT 0
   ) ENGINE=Memory;
 
   /* Per-spell -> per-item sums */
-  INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, apversus_amt, hit_amt, sphit_amt, spcrit_amt,
-                            crit_amt, blockvalue_amt, block_amt, parry_amt, dodge_amt,
-                            defense_amt, weapon_skill_amt, weapon_skill_dagger_amt, damage_shield_amt,
-                            sd_all_amt, sd_one_amt, heal_amt, mp5_amt, hp5_amt, spell_pen_amt)
+  INSERT INTO tmp_aura_flat(entry, ap_amt, rap_amt, apversus_amt,
+                            hit_amt, sphit_amt, pen_spell_amt,
+                            spcrit_amt, crit_amt, blockvalue_amt,
+                            block_amt, parry_amt, dodge_amt,
+                            defense_amt, weapon_skill_amt,
+                            weapon_skill_dagger_amt, damage_shield_amt,
+                            sd_all_amt, sd_one_amt, heal_amt,
+                            mp5_amt, hp5_amt)
   SELECT sc.entry,
          SUM(sc.ap_amt),
          SUM(sc.rap_amt),
          SUM(sc.apversus_amt),
          SUM(sc.hit_amt),
          SUM(sc.sphit_amt),
+         SUM(sc.pen_spell_amt),
          SUM(sc.spcrit_amt),
          SUM(sc.crit_amt),
          SUM(sc.blockvalue_amt),
@@ -178,8 +183,7 @@ BEGIN
          SUM(sc.sd_one_amt),
          SUM(sc.heal_amt),
          SUM(sc.mp5_amt),
-         SUM(sc.hp5_amt),
-         SUM(sc.spell_pen_amt)
+         SUM(sc.hp5_amt)
   FROM (
     SELECT raw.entry, raw.sid,
            CASE
@@ -193,6 +197,7 @@ BEGIN
            raw.apversus_raw AS apversus_amt,
            raw.hit_amt,
            raw.sphit_amt,
+           raw.pen_spell_raw AS pen_spell_amt,          -- SPELL PEN
            raw.spcrit_amt,
            raw.crit_amt,
            raw.blockvalue_raw AS blockvalue_amt,
@@ -205,10 +210,7 @@ BEGIN
            raw.damage_shield_raw AS damage_shield_amt,
            raw.sd_all_amt,
            raw.sd_one_amt,
-           CASE
-             WHEN raw.sd_all_amt > 0 AND raw.heal_amt > 0 THEN 0
-             ELSE raw.heal_amt
-           END AS heal_amt,
+           raw.heal_amt,
            raw.mp5_amt,
            raw.hp5_amt
     FROM (
@@ -241,6 +243,12 @@ BEGIN
          (CASE WHEN s.EffectAura_2=@AURA_SPHIT THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_3=@AURA_SPHIT THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS sphit_amt,
 
+        /* SPELL PEN:
+           aura 143 usually stores a NEGATIVE value (-25, -35, ...) so flip sign. */
+        ((CASE WHEN s.EffectAura_1=@AURA_PEN_SPELL THEN GREATEST(0, -(s.EffectBasePoints_1+1)) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_2=@AURA_PEN_SPELL THEN GREATEST(0, -(s.EffectBasePoints_2+1)) ELSE 0 END) +
+         (CASE WHEN s.EffectAura_3=@AURA_PEN_SPELL THEN GREATEST(0, -(s.EffectBasePoints_3+1)) ELSE 0 END)) AS pen_spell_raw,  -- SPELL PEN
+
         ((CASE WHEN s.EffectAura_1 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_2 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_3 IN (@AURA_SPCRIT1,@AURA_SPCRIT2) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS spcrit_amt,
@@ -248,15 +256,19 @@ BEGIN
         ((CASE WHEN s.EffectAura_1 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_2 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_3 IN (@AURA_CRIT_MELEE,@AURA_CRIT_RANGED,@AURA_CRIT_GENERIC) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS crit_amt,
+
         ((CASE WHEN s.EffectAura_1 IN (@AURA_BLOCKVALUE,@AURA_BLOCKVALUE_PCT) THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_2 IN (@AURA_BLOCKVALUE,@AURA_BLOCKVALUE_PCT) THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_3 IN (@AURA_BLOCKVALUE,@AURA_BLOCKVALUE_PCT) THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS blockvalue_raw,
+
         ((CASE WHEN s.EffectAura_1=@AURA_BLOCK THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_2=@AURA_BLOCK THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_3=@AURA_BLOCK THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS block_raw,
+
         ((CASE WHEN s.EffectAura_1=@AURA_PARRY THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_2=@AURA_PARRY THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_3=@AURA_PARRY THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS parry_raw,
+
         ((CASE WHEN s.EffectAura_1=@AURA_DODGE THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_2=@AURA_DODGE THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_3=@AURA_DODGE THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS dodge_raw,
@@ -322,11 +334,7 @@ BEGIN
 
         ((CASE WHEN s.EffectAura_1=@AURA_HP5 THEN (s.EffectBasePoints_1+1) ELSE 0 END) +
          (CASE WHEN s.EffectAura_2=@AURA_HP5 THEN (s.EffectBasePoints_2+1) ELSE 0 END) +
-         (CASE WHEN s.EffectAura_3=@AURA_HP5 THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS hp5_amt,
-
-        ((CASE WHEN s.EffectAura_1=@AURA_SPELL_PEN THEN GREATEST(0, -(s.EffectBasePoints_1+1)) ELSE 0 END) +
-         (CASE WHEN s.EffectAura_2=@AURA_SPELL_PEN THEN GREATEST(0, -(s.EffectBasePoints_2+1)) ELSE 0 END) +
-         (CASE WHEN s.EffectAura_3=@AURA_SPELL_PEN THEN GREATEST(0, -(s.EffectBasePoints_3+1)) ELSE 0 END)) AS spell_pen_amt
+         (CASE WHEN s.EffectAura_3=@AURA_HP5 THEN (s.EffectBasePoints_3+1) ELSE 0 END)) AS hp5_amt
 
       FROM tmp_equip_spells es
       JOIN dbc.spell_lplus s ON s.ID = es.sid
@@ -348,8 +356,8 @@ BEGIN
          POW(GREATEST(0, f.apversus_amt * @W_AP_VERSUS), 1.5) +
          POW(GREATEST(0, f.hit_amt    * @W_HIT),    1.5) +
          POW(GREATEST(0, f.sphit_amt  * @W_SPHIT),  1.5) +
+         POW(GREATEST(0, f.pen_spell_amt * @W_PEN_SPELL), 1.5) +  -- SPELL PEN
          POW(GREATEST(0, f.spcrit_amt * @W_SPCRIT), 1.5) +
-         POW(GREATEST(0, f.spell_pen_amt * @W_SPELL_PEN), 1.5) +
          POW(GREATEST(0, f.crit_amt   * @W_CRIT),   1.5) +
          POW(GREATEST(0, f.blockvalue_amt * @W_BLOCKVALUE), 1.5) +
          POW(GREATEST(0, f.block_amt  * @W_BLOCK),  1.5) +
@@ -425,6 +433,7 @@ BEGIN
          it.Quality
   FROM lplusworld.item_template it
   JOIN tmp_item_values iv ON iv.entry = it.entry;
+
   /* ===== Map to true ilvl via quality curves & write ===== */
   UPDATE lplusworld.item_template t
   JOIN tmp_item_slot_values sv ON sv.entry = t.entry
@@ -442,5 +451,6 @@ BEGIN
           )
         )
       );
-      CALL helper.sp_EstimateItemLevels_WeaponsFromBracketMedians();
+
+  CALL helper.sp_EstimateItemLevels_WeaponsFromBracketMedians();
 END
