@@ -18,9 +18,9 @@ BEGIN
     es.entry,
     /* add both SD(all schools) and Healing auras; damage/heal auras share the same 4:1 SP:DPS trade */
     SUM(
-      (CASE WHEN s.EffectApplyAuraName_1 IN (13,115,135) THEN s.EffectBasePoints_1+1 ELSE 0 END) +
-      (CASE WHEN s.EffectApplyAuraName_2 IN (13,115,135) THEN s.EffectBasePoints_2+1 ELSE 0 END) +
-      (CASE WHEN s.EffectApplyAuraName_3 IN (13,115,135) THEN s.EffectBasePoints_3+1 ELSE 0 END)
+      (CASE WHEN s.EffectAura_1 IN (13,115,135) THEN s.EffectBasePoints_1+1 ELSE 0 END) +
+      (CASE WHEN s.EffectAura_2 IN (13,115,135) THEN s.EffectBasePoints_2+1 ELSE 0 END) +
+      (CASE WHEN s.EffectAura_3 IN (13,115,135) THEN s.EffectBasePoints_3+1 ELSE 0 END)
     ) AS total_sp
   FROM equip_spells es
   JOIN dbc.spell_lplus s ON s.entry = es.sid
