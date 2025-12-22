@@ -1,5 +1,32 @@
 CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_EstimateItemLevels_WeaponsFromBracketMedians`()
 BEGIN
+  /* 0) flag on-equip spellpower/healing weapons so DPS medians never touch them */
+  DROP TEMPORARY TABLE IF EXISTS tmp_casterish_weps;
+  CREATE TEMPORARY TABLE tmp_casterish_weps AS
+  WITH equip_spells AS (
+    SELECT entry, spellid_1 AS sid FROM lplusworld.item_template WHERE spellid_1<>0 AND spelltrigger_1=1
+    UNION DISTINCT
+    SELECT entry, spellid_2 AS sid FROM lplusworld.item_template WHERE spellid_2<>0 AND spelltrigger_2=1
+    UNION DISTINCT
+    SELECT entry, spellid_3 AS sid FROM lplusworld.item_template WHERE spellid_3<>0 AND spelltrigger_3=1
+    UNION DISTINCT
+    SELECT entry, spellid_4 AS sid FROM lplusworld.item_template WHERE spellid_4<>0 AND spelltrigger_4=1
+    UNION DISTINCT
+    SELECT entry, spellid_5 AS sid FROM lplusworld.item_template WHERE spellid_5<>0 AND spelltrigger_5=1
+  )
+  SELECT DISTINCT es.entry
+  FROM equip_spells es
+  JOIN dbc.spell_lplus s ON s.entry = es.sid
+  WHERE
+    /* spell damage/healing auras */
+    s.EffectApplyAuraName_1 IN (13, 115, 135)
+    OR s.EffectApplyAuraName_2 IN (13, 115, 135)
+    OR s.EffectApplyAuraName_3 IN (13, 115, 135)
+    /* regen/other caster stats that imply non-physical intent */
+    OR s.EffectApplyAuraName_1 IN (83, 85)
+    OR s.EffectApplyAuraName_2 IN (83, 85)
+    OR s.EffectApplyAuraName_3 IN (83, 85);
+
   /* 1) Eligible weapons + DPS + bracket */
   DROP TEMPORARY TABLE IF EXISTS tmp_weps;
   CREATE TEMPORARY TABLE tmp_weps AS
@@ -19,9 +46,11 @@ BEGIN
       (COALESCE(it.dmg_min2,0)+COALESCE(it.dmg_max2,0))/2.0
     ) / NULLIF(it.delay/1000.0,0) AS cur_dps
   FROM lplusworld.item_template it
+  LEFT JOIN tmp_casterish_weps cw ON cw.entry = it.entry
   WHERE it.class = 2
     AND it.delay > 0
-    AND (COALESCE(it.dmg_min1,0)+COALESCE(it.dmg_max1,0)+COALESCE(it.dmg_min2,0)+COALESCE(it.dmg_max2,0)) > 0;
+    AND (COALESCE(it.dmg_min1,0)+COALESCE(it.dmg_max1,0)+COALESCE(it.dmg_min2,0)+COALESCE(it.dmg_max2,0)) > 0
+    AND cw.entry IS NULL;
 
   DELETE FROM tmp_weps WHERE bracket IS NULL OR cur_dps IS NULL;
 
@@ -95,4 +124,10 @@ BEGIN
          SUM(e.est_ilvl IS NOT NULL) AS items_estimated,
          SUM(e.est_ilvl IS NULL)     AS items_skipped
   FROM tmp_est e;
+
+  DROP TEMPORARY TABLE IF EXISTS tmp_est;
+  DROP TEMPORARY TABLE IF EXISTS tmp_above;
+  DROP TEMPORARY TABLE IF EXISTS tmp_below;
+  DROP TEMPORARY TABLE IF EXISTS tmp_weps;
+  DROP TEMPORARY TABLE IF EXISTS tmp_casterish_weps;
 END
