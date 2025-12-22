@@ -84,29 +84,6 @@ BEGIN
          + POW(GREATEST(0, IFNULL(it.arcane_res,0) * @W_RESIST), 1.5)
   FROM lplusworld.item_template it;
 
-  /* ===== Weapon DPS trade budget (caster weapons only) ===== */
-  DROP TEMPORARY TABLE IF EXISTS tmp_weapon_trade_terms;
-  CREATE TEMPORARY TABLE tmp_weapon_trade_terms(
-    entry INT UNSIGNED NOT NULL PRIMARY KEY,
-    term_sum DOUBLE NOT NULL
-  ) ENGINE=Memory;
-
-  INSERT INTO tmp_weapon_trade_terms(entry, term_sum)
-  SELECT it.entry,
-         POW(
-           GREATEST(
-             0,
-             (GREATEST(COALESCE(it.trueItemLevel, it.ItemLevel), 0) - 60)
-             * @WEAPON_DPS_TRADE_SD * @W_SD_ALL
-           ),
-           1.5
-         ) AS term_sum
-  FROM lplusworld.item_template it
-  WHERE it.class = 2
-    AND IFNULL(it.caster,0) = 1
-    AND IFNULL(it.delay,0) > 0
-    AND it.Quality IN (2,3,4);
-
   /* ===== On-equip spells (distinct equips only) ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_equip_spells;
   CREATE TEMPORARY TABLE tmp_equip_spells(
@@ -341,6 +318,35 @@ BEGIN
     ) raw
   ) sc
   GROUP BY sc.entry;
+
+  /* ===== Weapon DPS trade budget (caster weapons only; weight matches aura type) ===== */
+  DROP TEMPORARY TABLE IF EXISTS tmp_weapon_trade_terms;
+  CREATE TEMPORARY TABLE tmp_weapon_trade_terms(
+    entry INT UNSIGNED NOT NULL PRIMARY KEY,
+    term_sum DOUBLE NOT NULL
+  ) ENGINE=Memory;
+
+  INSERT INTO tmp_weapon_trade_terms(entry, term_sum)
+  SELECT it.entry,
+         POW(
+           GREATEST(
+             0,
+             (GREATEST(COALESCE(it.trueItemLevel, it.ItemLevel), 0) - 60)
+             * @WEAPON_DPS_TRADE_SD *
+             CASE
+               WHEN IFNULL(f.sd_all_amt,0) > 0 OR IFNULL(f.sd_one_amt,0) > 0 THEN @W_SD_ALL
+               WHEN IFNULL(f.heal_amt,0) > 0 THEN @W_HEAL
+               ELSE @W_SD_ALL
+             END
+           ),
+           1.5
+         ) AS term_sum
+  FROM lplusworld.item_template it
+  LEFT JOIN tmp_aura_flat f ON f.entry = it.entry
+  WHERE it.class = 2
+    AND IFNULL(it.caster,0) = 1
+    AND IFNULL(it.delay,0) > 0
+    AND it.Quality IN (2,3,4);
 
   /* ===== Convert flattened auras -> powered term_sum with refined classification ===== */
   DROP TEMPORARY TABLE IF EXISTS tmp_item_aura_terms;
