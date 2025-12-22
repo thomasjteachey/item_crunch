@@ -331,10 +331,21 @@ BEGIN
          POW(
            GREATEST(
              0,
-             (GREATEST(COALESCE(it.trueItemLevel, it.ItemLevel), 0) - 60)
-             * @WEAPON_DPS_TRADE_SD *
-             CASE
-               WHEN IFNULL(f.sd_all_amt,0) > 0 OR IFNULL(f.sd_one_amt,0) > 0 THEN @W_SD_ALL
+             (
+               /*
+                * Trade budget must follow the requested target ilvl.  Using
+                * the current trueItemLevel here causes feedback loops for
+                * caster/healing weapons (running the estimator after a bad
+                * estimate keeps compounding the runaway value and the scaler
+                * dutifully crunches toward that bogus target).  Always pivot
+                * from the static ItemLevel so the trade math matches the
+                * scaler's p_target_ilvl contract.
+                */
+               GREATEST(it.ItemLevel, 0) - 60
+             )
+              * @WEAPON_DPS_TRADE_SD *
+              CASE
+                WHEN IFNULL(f.sd_all_amt,0) > 0 OR IFNULL(f.sd_one_amt,0) > 0 THEN @W_SD_ALL
                WHEN IFNULL(f.heal_amt,0) > 0 THEN @W_HEAL
                ELSE @W_SD_ALL
              END
