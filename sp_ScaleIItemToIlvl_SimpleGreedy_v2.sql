@@ -423,6 +423,7 @@ proc: BEGIN
   CREATE TEMPORARY TABLE tmp_item_spells(
     slot          TINYINT UNSIGNED NOT NULL,
     spell_id      INT UNSIGNED NOT NULL,
+    spell_trigger TINYINT UNSIGNED NOT NULL,
     amount        INT NOT NULL,
     kind          VARCHAR(32) NULL,
     statmod       DOUBLE NULL,
@@ -432,32 +433,32 @@ proc: BEGIN
   ) ENGINE=MEMORY;
 
   /* On Use (0) + Equip (1) + Chance on Hit (2) */
-  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
-  SELECT 1, it.spellid_1, (sp.EffectBasePoints_1 + 1)
+  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, spell_trigger, amount)
+  SELECT 1, it.spellid_1, it.spelltrigger_1, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_1
   WHERE it.entry=p_entry AND it.spelltrigger_1 IN (0,1,2) AND it.spellid_1<>0;
 
-  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
-  SELECT 2, it.spellid_2, (sp.EffectBasePoints_1 + 1)
+  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, spell_trigger, amount)
+  SELECT 2, it.spellid_2, it.spelltrigger_2, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_2
   WHERE it.entry=p_entry AND it.spelltrigger_2 IN (0,1,2) AND it.spellid_2<>0;
 
-  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
-  SELECT 3, it.spellid_3, (sp.EffectBasePoints_1 + 1)
+  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, spell_trigger, amount)
+  SELECT 3, it.spellid_3, it.spelltrigger_3, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_3
   WHERE it.entry=p_entry AND it.spelltrigger_3 IN (0,1,2) AND it.spellid_3<>0;
 
-  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
-  SELECT 4, it.spellid_4, (sp.EffectBasePoints_1 + 1)
+  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, spell_trigger, amount)
+  SELECT 4, it.spellid_4, it.spelltrigger_4, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_4
   WHERE it.entry=p_entry AND it.spelltrigger_4 IN (0,1,2) AND it.spellid_4<>0;
 
-  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
-  SELECT 5, it.spellid_5, (sp.EffectBasePoints_1 + 1)
+  INSERT IGNORE INTO tmp_item_spells(slot, spell_id, spell_trigger, amount)
+  SELECT 5, it.spellid_5, it.spelltrigger_5, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_5
   WHERE it.entry=p_entry AND it.spelltrigger_5 IN (0,1,2) AND it.spellid_5<>0;
@@ -482,6 +483,7 @@ proc: BEGIN
   SET
     i.kind =
       CASE
+        WHEN i.spell_trigger = 0 THEN NULL
         WHEN s.EffectAura_1 IN (52,57,71,290,308) OR s.EffectAura_2 IN (52,57,71,290,308) OR s.EffectAura_3 IN (52,57,71,290,308) THEN 'CRIT_PCT'
         WHEN s.EffectAura_1 IN (54,55,199) OR s.EffectAura_2 IN (54,55,199) OR s.EffectAura_3 IN (54,55,199) THEN 'HIT_PCT'
         WHEN s.EffectAura_1 = 49 OR s.EffectAura_2 = 49 OR s.EffectAura_3 = 49 THEN 'DODGE_PCT'
@@ -489,19 +491,19 @@ proc: BEGIN
 
         /* SD (spellpower): aura 13 magic mask */
         WHEN (
-             (s.EffectAura_1 = 13 AND (IFNULL(s.EffectMiscValue_1,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_1,0) & 126)<>0)
-          OR (s.EffectAura_2 = 13 AND (IFNULL(s.EffectMiscValue_2,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_2,0) & 126)<>0)
-          OR (s.EffectAura_3 = 13 AND (IFNULL(s.EffectMiscValue_3,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_3,0) & 126)<>0)
+             (s.EffectAura_1 = 13 AND (IFNULL(s.EffectMiscValue_1,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_1,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_1,0)=0))
+          OR (s.EffectAura_2 = 13 AND (IFNULL(s.EffectMiscValue_2,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_2,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_2,0)=0))
+          OR (s.EffectAura_3 = 13 AND (IFNULL(s.EffectMiscValue_3,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_3,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_3,0)=0))
         ) THEN 'SD'
 
         /* HEAL (healing-only): aura 115/135, but only if the spell does NOT have SD aura 13 magic */
         WHEN (
-              (s.EffectAura_1 IN (115,135)) OR (s.EffectAura_2 IN (115,135)) OR (s.EffectAura_3 IN (115,135))
+             (s.EffectAura_1 IN (115,135)) OR (s.EffectAura_2 IN (115,135)) OR (s.EffectAura_3 IN (115,135))
              )
              AND NOT (
-               (s.EffectAura_1 = 13 AND (IFNULL(s.EffectMiscValue_1,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_1,0) & 126)<>0)
-            OR (s.EffectAura_2 = 13 AND (IFNULL(s.EffectMiscValue_2,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_2,0) & 126)<>0)
-            OR (s.EffectAura_3 = 13 AND (IFNULL(s.EffectMiscValue_3,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_3,0) & 126)<>0)
+               (s.EffectAura_1 = 13 AND (IFNULL(s.EffectMiscValue_1,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_1,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_1,0)=0))
+            OR (s.EffectAura_2 = 13 AND (IFNULL(s.EffectMiscValue_2,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_2,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_2,0)=0))
+            OR (s.EffectAura_3 = 13 AND (IFNULL(s.EffectMiscValue_3,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_3,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_3,0)=0))
              ) THEN 'HEAL'
 
         WHEN s.EffectAura_1 = 99 OR s.EffectAura_2 = 99 OR s.EffectAura_3 = 99 THEN 'AP'
@@ -513,24 +515,25 @@ proc: BEGIN
       END,
     i.statmod =
       CASE
+        WHEN i.spell_trigger = 0 THEN NULL
         WHEN (s.EffectAura_1 IN (52,57,71,290,308) OR s.EffectAura_2 IN (52,57,71,290,308) OR s.EffectAura_3 IN (52,57,71,290,308)) THEN @W_CRIT
         WHEN (s.EffectAura_1 IN (54,55,199) OR s.EffectAura_2 IN (54,55,199) OR s.EffectAura_3 IN (54,55,199)) THEN @W_HIT
         WHEN (s.EffectAura_1 = 49 OR s.EffectAura_2 = 49 OR s.EffectAura_3 = 49) THEN @W_DODGE
         WHEN (s.EffectAura_1 = 47 OR s.EffectAura_2 = 47 OR s.EffectAura_3 = 47) THEN @W_PARRY
 
         WHEN (
-             (s.EffectAura_1 = 13 AND (IFNULL(s.EffectMiscValue_1,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_1,0) & 126)<>0)
-          OR (s.EffectAura_2 = 13 AND (IFNULL(s.EffectMiscValue_2,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_2,0) & 126)<>0)
-          OR (s.EffectAura_3 = 13 AND (IFNULL(s.EffectMiscValue_3,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_3,0) & 126)<>0)
+             (s.EffectAura_1 = 13 AND (IFNULL(s.EffectMiscValue_1,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_1,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_1,0)=0))
+          OR (s.EffectAura_2 = 13 AND (IFNULL(s.EffectMiscValue_2,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_2,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_2,0)=0))
+          OR (s.EffectAura_3 = 13 AND (IFNULL(s.EffectMiscValue_3,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_3,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_3,0)=0))
         ) THEN @W_SD_ALL
 
         WHEN (
-              (s.EffectAura_1 IN (115,135)) OR (s.EffectAura_2 IN (115,135)) OR (s.EffectAura_3 IN (115,135))
+             (s.EffectAura_1 IN (115,135)) OR (s.EffectAura_2 IN (115,135)) OR (s.EffectAura_3 IN (115,135))
              )
              AND NOT (
-               (s.EffectAura_1 = 13 AND (IFNULL(s.EffectMiscValue_1,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_1,0) & 126)<>0)
-            OR (s.EffectAura_2 = 13 AND (IFNULL(s.EffectMiscValue_2,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_2,0) & 126)<>0)
-            OR (s.EffectAura_3 = 13 AND (IFNULL(s.EffectMiscValue_3,0) & 1)=0 AND (IFNULL(s.EffectMiscValue_3,0) & 126)<>0)
+               (s.EffectAura_1 = 13 AND (IFNULL(s.EffectMiscValue_1,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_1,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_1,0)=0))
+            OR (s.EffectAura_2 = 13 AND (IFNULL(s.EffectMiscValue_2,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_2,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_2,0)=0))
+            OR (s.EffectAura_3 = 13 AND (IFNULL(s.EffectMiscValue_3,0) & 1)=0 AND ((IFNULL(s.EffectMiscValue_3,0) & 126)<>0 OR IFNULL(s.EffectMiscValue_3,0)=0))
              ) THEN @W_HEAL
 
         WHEN (s.EffectAura_1 = 99 OR s.EffectAura_2 = 99 OR s.EffectAura_3 = 99) THEN @W_AP
@@ -542,6 +545,7 @@ proc: BEGIN
       END,
     i.locked =
       CASE
+        WHEN i.spell_trigger = 0 THEN 0
         WHEN (s.EffectAura_1 IN (47,49,51,52,54,55,57,71,199,290,308)
            OR s.EffectAura_2 IN (47,49,51,52,54,55,57,71,199,290,308)
            OR s.EffectAura_3 IN (47,49,51,52,54,55,57,71,199,290,308))
@@ -556,13 +560,13 @@ proc: BEGIN
   UPDATE tmp_item_spells i
   JOIN dbc.spell_lplus s ON s.ID = i.spell_id
   SET i.amount = GREATEST(
-      CASE WHEN (s.EffectAura_1=13 AND (IFNULL(s.EffectMiscValue_1,0)&1)=0 AND (IFNULL(s.EffectMiscValue_1,0)&126)<>0) THEN (IFNULL(s.EffectBasePoints_1,0)+1)
+      CASE WHEN (s.EffectAura_1=13 AND (IFNULL(s.EffectMiscValue_1,0)&1)=0 AND ((IFNULL(s.EffectMiscValue_1,0)&126)<>0 OR IFNULL(s.EffectMiscValue_1,0)=0)) THEN (IFNULL(s.EffectBasePoints_1,0)+1)
            WHEN (s.EffectAura_1 IN (115,135)) THEN (IFNULL(s.EffectBasePoints_1,0)+1)
            ELSE 0 END,
-      CASE WHEN (s.EffectAura_2=13 AND (IFNULL(s.EffectMiscValue_2,0)&1)=0 AND (IFNULL(s.EffectMiscValue_2,0)&126)<>0) THEN (IFNULL(s.EffectBasePoints_2,0)+1)
+      CASE WHEN (s.EffectAura_2=13 AND (IFNULL(s.EffectMiscValue_2,0)&1)=0 AND ((IFNULL(s.EffectMiscValue_2,0)&126)<>0 OR IFNULL(s.EffectMiscValue_2,0)=0)) THEN (IFNULL(s.EffectBasePoints_2,0)+1)
            WHEN (s.EffectAura_2 IN (115,135)) THEN (IFNULL(s.EffectBasePoints_2,0)+1)
            ELSE 0 END,
-      CASE WHEN (s.EffectAura_3=13 AND (IFNULL(s.EffectMiscValue_3,0)&1)=0 AND (IFNULL(s.EffectMiscValue_3,0)&126)<>0) THEN (IFNULL(s.EffectBasePoints_3,0)+1)
+      CASE WHEN (s.EffectAura_3=13 AND (IFNULL(s.EffectMiscValue_3,0)&1)=0 AND ((IFNULL(s.EffectMiscValue_3,0)&126)<>0 OR IFNULL(s.EffectMiscValue_3,0)=0)) THEN (IFNULL(s.EffectBasePoints_3,0)+1)
            WHEN (s.EffectAura_3 IN (115,135)) THEN (IFNULL(s.EffectBasePoints_3,0)+1)
            ELSE 0 END,
       i.amount
@@ -711,6 +715,7 @@ proc: BEGIN
       SET v_k_other := POW(v_S_rem_other / v_S_other_cur, 2.0/3.0);
     ELSE
       SET v_k_other := CASE
+        WHEN (v_S_sd_cur + v_S_heal_cur) > 0 THEN POW(GREATEST(v_S_target - v_S_locked, 0.0) / NULLIF((v_S_sd_cur + v_S_heal_cur), 0.0), 2.0/3.0)
         WHEN v_scale_unknown = 1 AND v_unknown_cnt > 0 THEN v_k_doc
         ELSE 1.0
       END;
@@ -741,7 +746,7 @@ proc: BEGIN
   UPDATE tmp_item_spells
   SET target_amount =
     CASE
-      WHEN kind IS NULL THEN CASE WHEN v_scale_unknown=1 THEN -1 ELSE NULL END
+      WHEN kind IS NULL THEN CASE WHEN spell_trigger = 0 THEN NULL WHEN v_scale_unknown=1 THEN -1 ELSE NULL END
       WHEN locked=1 THEN amount
       WHEN kind='SD'   THEN ROUND(amount * v_k_sd)
       WHEN kind='HEAL' THEN ROUND(amount * v_k_heal)
@@ -1103,7 +1108,7 @@ proc: BEGIN
         FROM tmp_item_spells
         WHERE spell_id IS NOT NULL AND spell_id <> 0
           AND (
-            (kind IS NULL AND v_scale_unknown = 1)
+            (kind IS NULL AND v_scale_unknown = 1 AND spell_trigger <> 0)
             OR (kind IS NOT NULL AND locked = 0 AND target_amount IS NOT NULL AND target_amount <> amount)
           );
 
@@ -1147,19 +1152,19 @@ proc: BEGIN
             SET ID = c_new_spell_id,
                 EffectBasePoints_1 = CASE
                   WHEN (EffectAura_1 IN (115,135))
-                       OR (EffectAura_1=13 AND (IFNULL(EffectMiscValue_1,0)&1)=0 AND (IFNULL(EffectMiscValue_1,0)&126)<>0)
+                       OR (EffectAura_1=13 AND (IFNULL(EffectMiscValue_1,0)&1)=0 AND ((IFNULL(EffectMiscValue_1,0)&126)<>0 OR IFNULL(EffectMiscValue_1,0)=0))
                   THEN (c_target_amount - 1)
                   ELSE EffectBasePoints_1
                 END,
                 EffectBasePoints_2 = CASE
                   WHEN (EffectAura_2 IN (115,135))
-                       OR (EffectAura_2=13 AND (IFNULL(EffectMiscValue_2,0)&1)=0 AND (IFNULL(EffectMiscValue_2,0)&126)<>0)
+                       OR (EffectAura_2=13 AND (IFNULL(EffectMiscValue_2,0)&1)=0 AND ((IFNULL(EffectMiscValue_2,0)&126)<>0 OR IFNULL(EffectMiscValue_2,0)=0))
                   THEN (c_target_amount - 1)
                   ELSE EffectBasePoints_2
                 END,
                 EffectBasePoints_3 = CASE
                   WHEN (EffectAura_3 IN (115,135))
-                       OR (EffectAura_3=13 AND (IFNULL(EffectMiscValue_3,0)&1)=0 AND (IFNULL(EffectMiscValue_3,0)&126)<>0)
+                       OR (EffectAura_3=13 AND (IFNULL(EffectMiscValue_3,0)&1)=0 AND ((IFNULL(EffectMiscValue_3,0)&126)<>0 OR IFNULL(EffectMiscValue_3,0)=0))
                   THEN (c_target_amount - 1)
                   ELSE EffectBasePoints_3
                 END;
