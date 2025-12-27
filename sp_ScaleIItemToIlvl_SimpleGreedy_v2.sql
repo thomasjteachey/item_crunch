@@ -56,6 +56,8 @@ proc: BEGIN
   DECLARE v_S_spell_now    DOUBLE;
   DECLARE v_S_total_now    DOUBLE;
   DECLARE v_err_now        DOUBLE;
+  DECLARE v_known_cnt      INT DEFAULT 0;
+  DECLARE v_unknown_cnt    INT DEFAULT 0;
 
   DECLARE v_iter           INT;
   DECLARE v_dir            INT;
@@ -429,36 +431,36 @@ proc: BEGIN
     PRIMARY KEY(slot, spell_id)
   ) ENGINE=MEMORY;
 
-  /* Equip (1) + Chance on Hit (2) */
+  /* On Use (0) + Equip (1) + Chance on Hit (2) */
   INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
   SELECT 1, it.spellid_1, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_1
-  WHERE it.entry=p_entry AND it.spelltrigger_1 IN (1,2) AND it.spellid_1<>0;
+  WHERE it.entry=p_entry AND it.spelltrigger_1 IN (0,1,2) AND it.spellid_1<>0;
 
   INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
   SELECT 2, it.spellid_2, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_2
-  WHERE it.entry=p_entry AND it.spelltrigger_2 IN (1,2) AND it.spellid_2<>0;
+  WHERE it.entry=p_entry AND it.spelltrigger_2 IN (0,1,2) AND it.spellid_2<>0;
 
   INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
   SELECT 3, it.spellid_3, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_3
-  WHERE it.entry=p_entry AND it.spelltrigger_3 IN (1,2) AND it.spellid_3<>0;
+  WHERE it.entry=p_entry AND it.spelltrigger_3 IN (0,1,2) AND it.spellid_3<>0;
 
   INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
   SELECT 4, it.spellid_4, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_4
-  WHERE it.entry=p_entry AND it.spelltrigger_4 IN (1,2) AND it.spellid_4<>0;
+  WHERE it.entry=p_entry AND it.spelltrigger_4 IN (0,1,2) AND it.spellid_4<>0;
 
   INSERT IGNORE INTO tmp_item_spells(slot, spell_id, amount)
   SELECT 5, it.spellid_5, (sp.EffectBasePoints_1 + 1)
   FROM lplusworld.item_template it
   JOIN dbc.spell_lplus sp ON sp.ID = it.spellid_5
-  WHERE it.entry=p_entry AND it.spelltrigger_5 IN (1,2) AND it.spellid_5<>0;
+  WHERE it.entry=p_entry AND it.spelltrigger_5 IN (0,1,2) AND it.spellid_5<>0;
 
   /* debug: auras list (ONE read) */
   SELECT COUNT(*),
@@ -581,11 +583,11 @@ proc: BEGIN
   SELECT
     SUM(CASE WHEN kind IS NOT NULL THEN 1 ELSE 0 END),
     SUM(CASE WHEN kind IS NULL THEN 1 ELSE 0 END)
-  INTO @known_cnt, @unknown_cnt
+  INTO v_known_cnt, v_unknown_cnt
   FROM tmp_item_spells;
 
   INSERT INTO helper.ilvl_debug_log(entry, step, k, v_double, v_text)
-  VALUES (p_entry,'AURAS_CLASSIFIED','known_count',@known_cnt,CONCAT('unknown_count=',@unknown_cnt));
+  VALUES (p_entry,'AURAS_CLASSIFIED','known_count',v_known_cnt,CONCAT('unknown_count=',v_unknown_cnt));
 
   /* ============================================================
      CASTER TRADE (ONLY affects SD / HEAL on caster weapons, NOT DPS)
@@ -708,7 +710,10 @@ proc: BEGIN
     IF v_S_other_cur > 0 THEN
       SET v_k_other := POW(v_S_rem_other / v_S_other_cur, 2.0/3.0);
     ELSE
-      SET v_k_other := 1.0;
+      SET v_k_other := CASE
+        WHEN v_scale_unknown = 1 AND v_unknown_cnt > 0 THEN v_k_doc
+        ELSE 1.0
+      END;
     END IF;
 
     /* for non-caster or missing buckets, SD/HEAL follow k_other */
