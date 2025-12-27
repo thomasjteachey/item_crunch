@@ -1,4 +1,3 @@
-DELIMITER $$
 CREATE DEFINER=`brokilodeluxe`@`%` PROCEDURE `sp_ScaleWeaponDpsToIlvl_ByBracketMedian`(
     IN p_entry      INT,
     IN p_tgt_ilvl   SMALLINT,
@@ -130,9 +129,22 @@ proc: BEGIN
         END IF;
     END IF;
 
-    /* fallback curve used for caster weapons (and if no median rows exist) */
-    SET v_src_slotval := 1.64 * v_src_ilvl + 11.2;
-    SET v_tgt_slotval := 1.64 * p_tgt_ilvl + 11.2;
+    /* slot value curve must match helper.sp_EstimateItemLevels */
+    SET v_src_slotval :=
+      CASE v_quality
+        WHEN 2 THEN (1.21 * v_src_ilvl - 9.8)   /* Green */
+        WHEN 3 THEN (1.42 * v_src_ilvl - 4.2)   /* Blue  */
+        WHEN 4 THEN (1.64 * v_src_ilvl + 11.2)  /* Epic  */
+        ELSE (1.64 * v_src_ilvl + 11.2)
+      END;
+
+    SET v_tgt_slotval :=
+      CASE v_quality
+        WHEN 2 THEN (1.21 * p_tgt_ilvl - 9.8)
+        WHEN 3 THEN (1.42 * p_tgt_ilvl - 4.2)
+        WHEN 4 THEN (1.64 * p_tgt_ilvl + 11.2)
+        ELSE (1.64 * p_tgt_ilvl + 11.2)
+      END;
     SET v_slot_ratio  := v_tgt_slotval / NULLIF(v_src_slotval, 0);
 
     /* default: just ratio-scale current DPS */
@@ -205,5 +217,4 @@ proc: BEGIN
     IF p_scale_item = 1 THEN
         CALL helper.sp_ScaleItemToIlvl_SimpleGreedy(p_entry, p_tgt_ilvl, p_apply, 1, 0);
     END IF;
-END proc$$
-DELIMITER ;
+END proc
